@@ -1,0 +1,17 @@
+*.log
+.env
+composer.phar
+composer.lock
+.DS_Store
+Thumbs.db
+/.idea
+/.vscode
+/vendor
+/.settings
+/.buildpath
+/.project# 备份文件（历史快照，不应入库）
+app/controller/api/*.bak.php
+# 抓包样本（含真实 token / 手机号，禁止入库）
+/recon/raw*/
+/recon/.token
+*.token
