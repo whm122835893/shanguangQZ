@@ -1,0 +1,572 @@
+{
+ "<root>": {
+  "fields": {
+   "id": "int",
+   "image": "str",
+   "title": "str",
+   "createtime": "int",
+   "type": "str",
+   "url": "str",
+   "affiche_type": "str",
+   "url_type": "int",
+   "is_show": "int",
+   "usageterms": "str",
+   "privacy_agreement": "str",
+   "version": "str",
+   "download_url": "str",
+   "originalImageBase64": "str",
+   "jigsawImageBase64": "str",
+   "secretKey": "str",
+   "token": "str",
+   "group_id": "int",
+   "username": "str",
+   "nickname": "str",
+   "email": "str",
+   "mobile": "str",
+   "avatar": "str",
+   "level": "int",
+   "gender": "int",
+   "birthday": "NoneType",
+   "bio": "str",
+   "money": "str",
+   "agent_money": "str",
+   "score": "int",
+   "successions": "int",
+   "maxsuccessions": "int",
+   "prevtime": "int",
+   "logintime": "int",
+   "loginip": "str",
+   "loginfailure": "int",
+   "joinip": "str",
+   "jointime": "int",
+   "updatetime": "int",
+   "status": "str",
+   "team_id": "int",
+   "inviter_user_id": "int",
+   "inviter_code": "str",
+   "yao_count": "int",
+   "yao_count_uptime": "int",
+   "real_name_authentication": "int",
+   "real_name": "str",
+   "id_card": "str",
+   "id_card_front": "NoneType",
+   "id_card_back": "NoneType",
+   "collection_total_price": "str",
+   "collection_num": "int",
+   "blind_box_num": "int",
+   "freeze": "int",
+   "buy_collection_total_price": "str",
+   "ali_openid": "NoneType",
+   "option_pass": "NoneType",
+   "is_white": "int",
+   "service_price": "str",
+   "recharge_price": "str",
+   "xin_count": "int",
+   "pay_password": "int",
+   "inviter_status": "int",
+   "ll_id": "NoneType",
+   "virtual": "int",
+   "market_open": "int",
+   "person_intro": "NoneType",
+   "has_bank": "int",
+   "yttime": "NoneType",
+   "crystal_yellow": "int",
+   "crystal_purple": "int",
+   "crystal_blue": "int",
+   "share_status": "int",
+   "share_success_time": "NoneType",
+   "real_name_time": "int",
+   "first_buy_time": "int",
+   "huifu_service_charge": "int",
+   "sandpay_service_charge": "int",
+   "yifutong_service_charge": "int",
+   "ntf_url": "NoneType",
+   "invite_type": "int",
+   "yibao_status": "int",
+   "tipay_status": "int",
+   "sandpay_status": "int",
+   "yifutong_status": "int",
+   "show_wallet": "int",
+   "nft_url": "NoneType",
+   "private_key": "NoneType",
+   "random_name": "int",
+   "is_show_rank": "int",
+   "user_wx": "NoneType",
+   "user_qq": "NoneType",
+   "user_phone": "NoneType",
+   "user_ore": "str",
+   "team_ore": "str",
+   "person_ore": "str",
+   "rabbit_team_status": "int",
+   "rabbit_person_status": "int",
+   "invited_user_buy_rabbit_collection_person": "int",
+   "is_first_one_market_buy_rabbit": "int",
+   "begin_team_rabbit_time": "NoneType",
+   "help_invited_user_product_ore_number": "str",
+   "medals_number": "str",
+   "transfer_permission": "int",
+   "new_inviter_user_id": "int",
+   "sq_user_id": "int",
+   "transfer_permission_level": "int",
+   "vip_time": "int",
+   "sync_time": "int",
+   "r_status": "int",
+   "is_vip": "int",
+   "account": "str",
+   "huifu_account": "int",
+   "artel_order": "str",
+   "crystal_type": "str",
+   "crystal_number": "str",
+   "uc_ids": "NoneType",
+   "num": "str",
+   "order_type": "str",
+   "order_status": "int",
+   "order_sn": "str",
+   "total_price": "str",
+   "goods_name": "str",
+   "goods_cover_image": "str",
+   "goods_id": "int",
+   "goods_type": "int",
+   "series_name": "str",
+   "batch_order_id": "int",
+   "collection_id": "int",
+   "sell_num": "str",
+   "utime": "int",
+   "lock_num": "int",
+   "is_collection": "int",
+   "can_compound": "int",
+   "my": "str",
+   "activityRule": "str",
+   "content": "str",
+   "user_id": "int",
+   "read_status": "int",
+   "union": "NoneType",
+   "crystal": "str",
+   "highest": "str",
+   "start_time": "str",
+   "name": "str",
+   "snapshot_ids": "str",
+   "is_limit": "str",
+   "_rule": "str",
+   "is_recycle": "str",
+   "integral_1": "str",
+   "image2": "str",
+   "end_time": "str",
+   "lottery_max": "str",
+   "highest_sp_id": "str",
+   "integral_5": "str",
+   "display_number": "str",
+   "switch": "str",
+   "start": "str",
+   "start_sp_id": "str",
+   "display_lottery_log": "str",
+   "image1": "str",
+   "grand_total": "int",
+   "is_consecutive_draws_5": "bool",
+   "is_consecutive_draws_1": "bool",
+   "free_number": "int",
+   "remaining": "int",
+   "minprice": "int",
+   "price_pro": "int",
+   "tips": "str",
+   "price_price_ratio": "str",
+   "pay_platform_service_rate": "str",
+   "share_proportion_rate": "str",
+   "platform_service_price": "str",
+   "share_proportion_price": "str",
+   "real_price": "str",
+   "low_price": "int",
+   "low_price_text": "str",
+   "listimg": "str",
+   "reprice_limit": "int",
+   "reprice_min_limit": "str",
+   "reprice_beg_max_limit": "str",
+   "max_buy_price": "int",
+   "transaction_record_number": "int",
+   "current_buying": "int",
+   "floor_price": "int",
+   "today_amount": "int",
+   "today_volume": "int",
+   "today_highest_price": "NoneType",
+   "today_lowest_price": "NoneType",
+   "order_id": "str",
+   "time": "str",
+   "openstatus": "bool",
+   "accessid": "str",
+   "host": "str",
+   "policy": "str",
+   "signature": "str",
+   "expire": "int",
+   "callback": "str",
+   "key": "str",
+   "code": "int",
+   "ext_id": "int",
+   "ext_type": "str",
+   "category_ids": "NoneType",
+   "json": "NoneType",
+   "views": "int",
+   "deletetime": "NoneType",
+   "weigh": "int",
+   "status_text": "str",
+   "json_data": "NoneType"
+  },
+  "evidence": [
+   "affiche_c1",
+   "affiche_c2",
+   "affiche_c3",
+   "affiche_c4",
+   "affiche_c5",
+   "affiche_p2",
+   "affiche_p3",
+   "banner_show_getBanner",
+   "banner_show_getbanner",
+   "common_uploadaccess",
+   "extend_getdetails",
+   "index_afficheList",
+   "index_affichelist",
+   "index_getVersion",
+   "index_getversion",
+   "index_index_agreement",
+   "index_index_consignmentSales",
+   "index_index_consignmentsales",
+   "index_index_usageterms",
+   "lottery_info_v2",
+   "market_prepayment_collectiondetail",
+   "market_trade_collectiondetail",
+   "market_trade_tradinginformation",
+   "order_ll_getapply",
+   "order_order_batchPayOrder",
+   "order_order_batchpayorder",
+   "order_order_orderList",
+   "order_order_orderlist",
+   "order_pay_createviporder",
+   "sms_getCapt",
+   "sms_getcapt",
+   "union_user_myunion",
+   "user_collection_user_collection_antMycollection",
+   "user_collection_user_collection_antmycollection",
+   "user_getUserInfo",
+   "user_getuserinfo",
+   "user_newList",
+   "user_newlist",
+   "user_ranking",
+   "wallet_huifu_wallet"
+  ]
+ },
+ "data": {
+  "fields": {
+   "data": "list",
+   "list.data": "list"
+  },
+  "evidence": [
+   "activity_index",
+   "box_blind_box_openlog",
+   "crystal_goods_crystaldetail",
+   "crystal_goods_exchangerecord",
+   "crystal_goods_list",
+   "discover_ant_news_list",
+   "discover_rumor_wall_getcomment",
+   "discover_rumor_wall_getreply",
+   "market_Prepayment_myOrderlist",
+   "market_market_marketlist",
+   "market_prepayment_myorderlist",
+   "market_prepayment_prepaymentlistmain",
+   "market_trade_begBuyList_v3",
+   "market_trade_begBuyOrderList",
+   "market_trade_begbuyorderlist",
+   "order_cash_cashList",
+   "order_cash_cashlist",
+   "order_order_batchPayOrder",
+   "order_order_batchpayorder",
+   "order_order_myConsignment",
+   "order_order_myconsignment",
+   "synthesis_recordList",
+   "synthesis_recordlist",
+   "user_aboutgift",
+   "user_collection_user_collection_compoundLog",
+   "user_collection_user_collection_compoundlog",
+   "user_collection_user_collection_getdetail",
+   "user_ranking"
+  ]
+ },
+ "userinfo": {
+  "fields": {
+   "userinfo.id": "int",
+   "userinfo.username": "str",
+   "userinfo.nickname": "str",
+   "userinfo.mobile": "str",
+   "userinfo.avatar": "str",
+   "userinfo.score": "int",
+   "userinfo.inviter_code": "str",
+   "userinfo.yao_count": "int",
+   "userinfo.huifu_service_charge": "int",
+   "userinfo.sandpay_service_charge": "int",
+   "userinfo.yibao_status": "int",
+   "userinfo.sandpay_status": "int",
+   "userinfo.user_wx": "NoneType",
+   "userinfo.user_qq": "NoneType",
+   "userinfo.user_phone": "NoneType",
+   "userinfo.user_ore": "str",
+   "userinfo.team_ore": "str",
+   "userinfo.person_ore": "str",
+   "userinfo.invited_user_buy_rabbit_collection_person": "int",
+   "userinfo.transfer_permission": "int",
+   "userinfo.transfer_permission_level": "int",
+   "userinfo.token": "str",
+   "userinfo.user_id": "str",
+   "userinfo.expiretime": "int",
+   "userinfo.expires_in": "int",
+   "userinfo.is_exist": "int"
+  },
+  "evidence": [
+   "_login"
+  ]
+ },
+ "verification": {
+  "fields": {
+   "verification.email": "int",
+   "verification.mobile": "int"
+  },
+  "evidence": [
+   "user_getUserInfo",
+   "user_getuserinfo"
+  ]
+ },
+ "statistics": {
+  "fields": {
+   "statistics.invited_count": "int",
+   "statistics.buy_count": "int",
+   "statistics.sale_count": "int",
+   "statistics.join_day": "int"
+  },
+  "evidence": [
+   "user_getUserInfo",
+   "user_getuserinfo"
+  ]
+ },
+ "collection_code": {
+  "fields": {
+   "collection_code": "list"
+  },
+  "evidence": [
+   "order_order_orderList",
+   "order_order_orderlist"
+  ]
+ },
+ "collection": {
+  "fields": {
+   "collection.id": "int",
+   "collection.name": "str",
+   "collection.main_image": "str",
+   "collection.listimg": "str",
+   "collection.collection_level": "str",
+   "collection.total_num_show": "int",
+   "collection.total_num": "int",
+   "collection.is_img_diff": "int",
+   "collection.unfreeze_collection_id": "int",
+   "collection.freeze_time": "int",
+   "collection.avg_price": "int",
+   "collection.num": "str",
+   "collection.batch_up": "int"
+  },
+  "evidence": [
+   "user_collection_user_collection_antMycollection",
+   "user_collection_user_collection_antmycollection",
+   "user_collection_user_collection_getdetail"
+  ]
+ },
+ "list": {
+  "fields": {
+   "list": "list",
+   "list.total": "int",
+   "list.per_page": "int",
+   "list.current_page": "int",
+   "list.last_page": "int",
+   "list.data": "list",
+   "list.current_count": "int",
+   "list.current_consignment": "int"
+  },
+  "evidence": [
+   "market_market_getMarketGoodsListByGoodsId",
+   "market_market_getMarketGoodsListByGoodsId_v2",
+   "market_market_getmarketgoodslistbygoodsid",
+   "market_trade_tradinginformation",
+   "user_collection_user_collection_getdetail",
+   "user_newrank1"
+  ]
+ },
+ "headUser": {
+  "fields": {
+   "headUser": "list"
+  },
+  "evidence": [
+   "user_newrank1"
+  ]
+ },
+ "rank1": {
+  "fields": {
+   "rank1": "list"
+  },
+  "evidence": [
+   "user_newrank1"
+  ]
+ },
+ "rank2": {
+  "fields": {
+   "rank2": "list"
+  },
+  "evidence": [
+   "user_newrank1"
+  ]
+ },
+ "config": {
+  "fields": {
+   "config.user_num": "int",
+   "config.have_rate": "float",
+   "config.be_invite_back_rate": "int",
+   "config.have_be_invite_back_rate": "float",
+   "config.manager_user_rate": "int",
+   "config.user_rate": "int"
+  },
+  "evidence": [
+   "union_user_myunion"
+  ]
+ },
+ "my": {
+  "fields": {
+   "my.id": "int",
+   "my.avatar": "str",
+   "my.nickname": "str",
+   "my.mobile": "str",
+   "my.is_join": "int",
+   "my.sort": "str",
+   "my.power": "int",
+   "my.is_manage": "int"
+  },
+  "evidence": [
+   "union_user_myunion"
+  ]
+ },
+ "join": {
+  "fields": {
+   "join": "list"
+  },
+  "evidence": [
+   "union_user_myunion"
+  ]
+ },
+ "custom_series": {
+  "fields": {
+   "custom_series": "list"
+  },
+  "evidence": [
+   "index_customSeriesList",
+   "index_customserieslist"
+  ]
+ },
+ "platform_series": {
+  "fields": {
+   "platform_series": "list"
+  },
+  "evidence": [
+   "index_customSeriesList",
+   "index_customserieslist"
+  ]
+ },
+ "collection_json": {
+  "fields": {
+   "collection_json.name": "str",
+   "collection_json.id": "str",
+   "collection_json.num": "str"
+  },
+  "evidence": [
+   "lottery_info_v2"
+  ]
+ },
+ "consecutive_draws_1": {
+  "fields": {
+   "consecutive_draws_1.name": "str",
+   "consecutive_draws_1.id": "str",
+   "consecutive_draws_1.num": "str",
+   "consecutive_draws_1.user_collection_ids": "list"
+  },
+  "evidence": [
+   "lottery_info_v2"
+  ]
+ },
+ "consecutive_draws_5": {
+  "fields": {
+   "consecutive_draws_5.name": "str",
+   "consecutive_draws_5.id": "str",
+   "consecutive_draws_5.num": "int",
+   "consecutive_draws_5.user_collection_ids": "list"
+  },
+  "evidence": [
+   "lottery_info_v2"
+  ]
+ },
+ "lotteryList": {
+  "fields": {
+   "lotteryList.id": "int",
+   "lotteryList.score": "int",
+   "lotteryList.user_id": "int",
+   "lotteryList.create_time": "str",
+   "lotteryList.lottery_lv": "str",
+   "lotteryList.msg": "str"
+  },
+  "evidence": [
+   "lottery_info_v2"
+  ]
+ },
+ "floor_price": {
+  "fields": {
+   "floor_price.minprice": "int",
+   "floor_price.price_pro": "int",
+   "floor_price.tips": "str",
+   "floor_price.price_price_ratio": "str",
+   "floor_price.pay_platform_service_rate": "str",
+   "floor_price.share_proportion_rate": "str",
+   "floor_price.platform_service_price": "str",
+   "floor_price.share_proportion_price": "str",
+   "floor_price.real_price": "str",
+   "floor_price.low_price": "int",
+   "floor_price.low_price_text": "str"
+  },
+  "evidence": [
+   "market_trade_collectiondetail"
+  ]
+ },
+ "info": {
+  "fields": {
+   "info.sys_id": "str",
+   "info.extension": "str",
+   "info.acct_id": "str",
+   "info.resp_desc": "str",
+   "info.resp_code": "str",
+   "info.mer_priv": "str",
+   "info.user_cust_id": "str",
+   "info.redirect_url": "str",
+   "info.mer_cust_id": "str",
+   "info.biz_product_id": "str"
+  },
+  "evidence": [
+   "wallet_huifu_wallet"
+  ]
+ },
+ "needBuyCollectionList": {
+  "fields": {
+   "needBuyCollectionList": "list"
+  },
+  "evidence": [
+   "synthesis_selectcollection"
+  ]
+ },
+ "userHaveCollectionList": {
+  "fields": {
+   "userHaveCollectionList": "list"
+  },
+  "evidence": [
+   "synthesis_selectcollection"
+  ]
+ }
+}
