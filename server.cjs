@@ -9,7 +9,21 @@ const path = require('path')
 
 const PORT = process.env.PORT || 3000
 const DIST = path.join(__dirname, 'dist')
-const API_HOST = 'api.gandart.shop'
+
+/* API 上游可切换：
+ *   默认 http://127.0.0.1:4200 -> 本地 Mock Server（ThinkPHP），
+ *   设API_UPSTREAM=https://api.gandart.shop 才会打原站。
+ * 这样生产部署默认不依赖原站，除非显式指定。 */
+const API_UPSTREAM = process.env.API_UPSTREAM || 'http://127.0.0.1:4200'
+const API_IS_HTTPS = API_UPSTREAM.startsWith('https://')
+/* 注意用 hostname 而不是 host ——后者含端口（如 127.0.0.1:4200），
+   再单独传 port 会让 Node 解析失败并返回 502。*/
+const API_URL = new URL(API_UPSTREAM)
+const API_HOST = API_URL.hostname
+const API_PORT = API_URL.port || (API_IS_HTTPS ? 443 : 80)
+/* 打原站时才需要伪造 Origin/Referer（网关校验用）；打本地 Mock 不需要 */
+const API_IS_ORIGIN = API_HOST.includes('gandart.shop')
+
 const IMG_HOST = 'img.gandart.shop'
 /* 原站 OSS 图片本地缓存目录：图片一律从原站下载填充到本项目，
    避免手机端直连 img.gandart.shop 因跨域/体积导致大图加载失败。*/
@@ -197,21 +211,27 @@ http
       return up.end()
     }
 
-    // ---- API 代理：补上原站校验所需�� Origin / Referer ----
-    // 注意：原站有一类「二进制资源」接口不带 /api 前缀（如 /addons/qrcode/... 返回 PNG），
-    //必须一并放行，否则会被 SPA fallback 吞成 index.html，前端 <img> 拿到 HTML 导致图裂。
-    if (req.url.startsWith('/api') || req.url.startsWith('/addons/')) {
-      const proxyReq = https.request(
+    // ---- API 代理：本地 Mock 或原站（由 API_UPSTREAM 决定）----
+    // 注意：有一类「二进制资源」接口不带 /api 前缀（如 /addons/qrcode/... 返回 SVG），
+    // 必须一并放行，否则会被 SPA fallback 吞成 index.html，前端 <img> 拿到 HTML 导致图裂。
+    // /static/oss/ 同理：那是后端 Image 控制器提供的图片服务（见 SPEC §2.8）。
+    if (req.url.startsWith('/api') || req.url.startsWith('/addons/') ||
+        req.url.startsWith('/static/oss/')) {
+      const transport = API_IS_HTTPS ? https : http
+      const proxyReq = transport.request(
         {
           host: API_HOST,
+          port: API_PORT,
           path: req.url,
           method: req.method,
           headers: {
             ...req.headers,
             host: API_HOST,
-            origin: 'https://h5.gandart.shop',
-            referer: 'https://h5.gandart.shop/',
-            /* 二维码等接口返回 PNG，要求上游不压缩，避免解压后长度与content-length 不符 */
+            // 仅打原站时补这两个头（网关校验）；本地 Mock 不需要
+            ...(API_IS_ORIGIN
+              ? { origin: 'https://h5.gandart.shop', referer: 'https://h5.gandart.shop/' }
+              : {}),
+            /* 二维码等接口返回 SVG/PNG，要求上游不压缩，避免解压后长度与content-length 不符 */
             'accept-encoding': 'identity'
           }
         },

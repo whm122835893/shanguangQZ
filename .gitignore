@@ -20,3 +20,8 @@ npm-debug.log*
 
 # 注意：public/static 下的图片是项目运行必需的资源（已本地化，不依赖外链），
 # 因此 public/ 不做忽略，必须随仓库提交。
+# 原站抓包样本（含真实 token / 手机号，禁止入库）
+recon/
+/raw/
+*.token
+.env.local

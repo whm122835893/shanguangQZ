@@ -4,12 +4,12 @@
  *
  * 路由：#/pages/login/verification?mobile={手机号}&type={bind|resetPwd|1}
  *
- * 原站 390x844 实测（?mobile=17587881293&type=bind）：
+ * 原站 390x844 实测（?mobile=175****1293&type=bind）：
  *   .container.page-container @0,0 390x844 bg #fff
  *   .login_center @0,44 390x642
  *     .title @41,71 308x57
  *       「请输入验证码」 @41,71 308x26  18px/600 rgb(35,38,47)
- *       「已发送至+86 17587881293」 @41,97 308x31  12px rgb(122,122,122)
+ *       「已发送至+86 175****1293」 @41,97 308x31  12px rgb(122,122,122)
  *     .iptStyle @41,275 308x50
  *       .u-input--square.u-border-bottom @41,275 308x50 br10  （实测为全边框）
  *         .u-input__content @57,288 276x24 15px「请输入验证码」

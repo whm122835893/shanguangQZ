@@ -501,7 +501,7 @@
 
 | 分组 | 字段（实测值示例） |
 |---|---|
-| 身份 | `id:16797` `username:"17587881293"` `nickname:"GqdusoI30"` `mobile` `avatar:"/defautAvatar.png"` `level:1` `gender:1` |
+| 身份 | `id:16797` `username:"175****1293"` `nickname:"GqdusoI30"` `mobile` `avatar:"/defautAvatar.png"` `level:1` `gender:1` |
 | 资金 | `money:"0.00"` `agent_money:"0.00"` `recharge_price:"0.00"` `service_price:"0.00"` `user_ore:"0.000000"` `team_ore` `person_ore` |
 | 积分/连签 | `score:0` `successions:4` `maxsuccessions:4` `prevtime:1792171727` |
 | 邀请 | **`inviter_code:"Q28116797"`** `inviter_user_id:0` `inviter_status:0` `invite_type:1` `new_inviter_user_id` `yao_count` |

@@ -2,8 +2,10 @@ import axios from 'axios'
 /* 由 tools/build-oss-map.py 生成：原站路径 -> 本项目的实际静态文件名（png 无透明通道已转 jpg） */
 import OSS_MAP from './oss-map.json'
 
-export const API_HOST = 'https://api.gandart.shop'
-export const OSS_HOST = 'https://img.gandart.shop'
+/*后端已本地化：Mock Server 提供 /static/oss/<路径> 图片服务
+   （首次从CDN 抓取后缓存到 runtime/img-cache，之后不再出网）。
+   因此这里默认走同源本地路径，彻底去掉 img.gandart.shop 依赖。 */
+const OSS_HOST = ''
 
 /* 预览环境会话保活：登录成功后保存凭据（仅本机 localStorage），
    token 过期（code 401）时静默重新登录并重放原请求，用户无感。 */
@@ -112,10 +114,15 @@ http.interceptors.response.use(
 )
 
 /**
- * 拼接 OSS 图片地址：原站返回相对路径，转成本项目静态资源 /static/oss/<OSS路径>。
- * 图片由 tools/fetch-oss-images.sh 从原站 img.gandart.shop 下载后填充到 public/static/oss/，
- * 随构建一起进 dist，手机端直接静态加载，无代理环节、无格式兼容问题。
- * 未预下载的图片由 server.cjs 兜底（从原站下载后落盘）。
+ * 拼接 OSS 图片地址：后端返回相对路径 -> 同源 /static/oss/<OSS路径>。
+ *
+ * 【已本地化，不再依赖原站】
+ * Mock Server 的 Image 控制器提供该路径：首次访问从 CDN 抓取并缓存到
+ * runtime/img-cache，之后直接读本地磁盘，二次访问零出网。
+ * 前端始终只发同源请求，无跨域、无外部域名依赖。
+ *
+ * 【若要彻底断网】执行 tools/fetch-oss-images.sh 全量预热，
+ * 让服务端缓存自给自足（当前为按需懒加载）。
  */
 export const oss = (p) => {
   if (!p) return ''
@@ -127,6 +134,7 @@ export const oss = (p) => {
      缩放由各处 CSS 的 object-fit + 固定尺寸实现。 */
   path = path.split('?')[0]
   if (!path.startsWith('/')) path = '/' + path
+  if (OSS_HOST) return OSS_HOST + path
   /* 落盘时 PNG 无透明通道的图已转为 .jpg，按映射表取实际文件名 */
   const mapped = OSS_MAP[path]
   return '/static/oss' + (mapped || path)

@@ -223,7 +223,7 @@ onMounted(() => {
           @click="router.push(g.path)"
         >
           <div class="flex-center grid-icon">
-            <img :src="'/static/' + g.icon" :alt="g.text" />
+            <img :src="'/static/icon/' + g.icon" :alt="g.text" />
           </div>
           <div class="grid-text font-color-dark font-size-12">{{ g.text }}</div>
         </div>

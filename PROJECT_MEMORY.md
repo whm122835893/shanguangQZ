@@ -109,6 +109,162 @@ path = path.split('?')[0]   // 关键
 | 幸运抽签点不动 | 指向不存在的 `/pages/lottery/draw` | 实为 `/pages/activity/draw?thm=3` |
 | 顶栏签到图标进消息页 | 图标资源叫 `sign.png`（签到），模板绑错 | `/pages/sign/index` |
 | 外链检查漏掉 CDN 字体 | 只扫运行时请求，浏览器命中 woff2 后**不请求** woff 兜底源 | 构建后 `strip-external.cjs` 剥离 |
+| **dev server 首页白屏**：`Failed to fetch dynamically imported module: /src/pages/index/Index.vue` | 模板里 208 处 `src="/static/icon/xxx.png"`（88 个 .vue）被 Vite `import-analysis` 当成**模块依赖**去解析，找不到就整页崩。**建 `public/static/` 目录无效** —— Vite 要求文件真实存在 | `vite.config.js` 加 `staticAssetsPlugin()`：在 `resolveId`/`load` 层拦截 `/static/*.png`，编译期改写成 `https://h5.gandart.shop/...`。零改 .vue 源码 |
+| 联调时页面「点了没反应」且不报错 | Mock 未注册该端点；空响应被前端 `try/catch` 静默吞掉 | 用 `mock-server/check-coverage.py` 比对前端 60 端点 vs Mock 路由，**不靠人肉点页面** |
+| Mock 全部 POST，但前端混用 get/post | 原站 221 端点实测全 POST；`src/api/index.js` 有 9 处 `http.get`，而 `http.js` 请求拦截器**不改写 method** | Mock 所有业务端点统一 `Route::rule(..., 'GET|POST')` |
+| 首页「限量份」数字为空 | Mock 给了 `num`，前端消费的是 **`total_num`** | Mock 补 `total_num`/`main_image`/`listimg`/`soldout`，并把这组字段固化为断言 |
+| 联调时 banner / 藏品图裂 | `oss()` 指向本地 `public/static/oss/`，但那 287 张图**从未拉取** | `.env.development` 设 `VITE_OSS_REMOTE=1`，`oss()` 直接回源 `img.gandart.shop`；图片补齐后删掉该变量即切回本地静态方案 |
+| `Request::param(): Argument #2 ($default) must be of type string, int given` | 给 `string $default` 形参传了 int 字面量 | 用 `Request::int('page', 1)`；契约层已**不提供** `param()`，避免误用 |
+| ThinkPHP 6.1 被 Composer 安全公告拦截 | PKSA 反序列化漏洞 + XSS，影响 `>=6.1.3,<=8.0.4` | 改用 **ThinkPHP 8.1.4**（不在受影响范围），安装通过 |
+| **生产构建后页面全白**，`Failed to fetch dynamically imported module: /assets/Index-xxx.js` | Vite 自定义插件未限定命令，把 dev 专有的虚拟前缀 `/@local-asset/` 写进了生产产物 | 插件加 `apply(_config, env) { return env.command === 'serve' }`。**dev-only 逻辑必须显式限定** |
+| **生产 API/二维码 502** | Node `http.request({host})` 传了含端口的 `new URL().host`（如 `127.0.0.1:4200`），再单传 port 导致解析失败 | 用 `.hostname` + 单独的 `.port` |
+| 生产环境藏品图/Banner 裂图 | `server.cjs` 只放行 `/api` 与 `/addons/`，漏了 `/static/oss/`（后端图片服务），被 SPA fallback 吞成 index.html | 三者一并放行：`/api`、`/addons/`、`/static/oss/` |
+| tabBar 与「我的」宫格图标裂 | 模板用**前缀拼接** `:src="'/static/' + g.icon"`，静态正则扫不到；且真实路径在 `/static/icon/` 下，前缀本就写错 | 全量正则 + 运行时抓 404 双重定位；`My.vue` 前缀改为 `/static/icon/` |
+| `rm -rf dist` 后 `npm run build` 报ENOENT | `prebuild` 的 `archive-assets.cjs` 归档 `dist/assets` 与 `.assets-archive`，两者互为源 | 重建前 `rm -rf .assets-archive dist && mkdir -p dist`，别单独删 dist |
+
+### 4.2 原站依赖已全部切断（2026-10-17）
+
+**结论：前端与后端均不再依赖原站，可完全离线运行。**
+
+| 原依赖 | 替代方案 | 落地位置 |
+|---|---|---|
+| `api.gandart.shop` 全部业务接口 | Mock Server 67 路由 | `mock-app/route/mock.php` |
+| `api.gandart.shop/addons/qrcode` | `endroid/qr-code` 本地生成（SvgWriter，无需 GD） | `mock-app/app/controller/Addons.php` |
+| `img.gandart.shop` 图片CDN | 后端图片服务：首次抓取后缓存到 `runtime/img-cache`，二次零出网 | `mock-app/app/controller/Image.php` |
+| `h5.gandart.shop/static/*` UI 图标 | **162 项全部落盘**到 `public/static/` | `public/static/` |
+
+**原站已失效的 9 个资源**（原站自身 404，非本项目问题）：`tabBar/index-unactive.png`、`tabBar/my-active.png`、`icon/task-status.png`、`logo.png`、`my/avatar-bg.png`、`image/kline/card.jpg`、`image/kline/card2.jpg`、及 `compose/result-divider.png`、`copy-white.png` 等 —— 已放同路径SVG 占位图兜底，详见 `public/static/README.md`。
+
+### 4.3 联调/断网校验四件套（可复跑）
+
+| 脚本 | 作用 | 当前结果 |
+|---|---|---|
+| `mock-server/check-coverage.py` | 前端 60 端点 vs Mock 67 路由 | **60/60 全覆盖** |
+| `mock-server/check-endpoints.py` | 逐端点发真实请求（63×2=126 次），验 `code=1`／信封四键／401 | **126 次零失败** |
+| `mock-server/smoke.py` | 契约红线：信封、字段数、金额 string、布尔 int、token 双通道、分页三写法 | **14/14 通过** |
+| `mock-server/check-offline.py` | 断网核验：配置层/源码层/Mock 响应/图标落盘四处无原站引用 | **通过（162 个本地图标）** |
+
+浏览器级核验（dev 15 页 + 生产首页）：**外部请求 0 个，404 资源 0 个**。
+
+### 4.4 后端真实化（ThinkPHP + MariaDB，2026-10-17）
+
+Mock 的内存假数据已开始替换为数据库驱动。**原则：每个接口实现前必须先抓原站真实响应**，
+字段一律以实测为准，禁止凭猜测设计。
+
+**已建库表**（DDL：`mock-server/sql/01-schema.sql`）
+
+| 表 | 用途 | 数据来源 |
+|---|---|---|
+| `affiche` | 公告 | 原站实测 53 条 |
+| `affiche_type` | 公告类型字典 | 原站实测 5 条 |
+| `blind_box` | 盲盒/藏品 | 原站实测 1 条（id=161） |
+| `blind_box_batch` | 批次（嵌套 batch 拆表） | 原站实测 |
+| `publisher` | 发行方（嵌套 publisher 拆表） | 原站实测 |
+| `user` | 用户（骨架，待真实字段） | ⚠️ 未抓到样本 |
+| `rate_limit` | 限流计数 | 本项目新增 |
+| `banner` | 轮播图 | 原站实测 2 条 |
+| `site_config` | 站点配置 KV | 原站实测 getVersion |
+| `collection` | 藏品（已开盒实例） | 实测 10 字段 |
+| `series` | 藏品系列/分区 | 原站实测空数组 |
+
+**完整表设计见 `docs/db/DATABASE-DESIGN.md` v2.0**（实测字段清单 / 30 张表清单 / 类型陷阱 / Model 照抄样例）。
+
+**当前库中共 30 张表** = P0 内容藏品 11 + P1 交易核心 16 + 系统安全 3。
+表数结论：原站全量 221 端点 ≈ 52 张表；本项目按前端 `src/api/index.js` 实际调用的
+62 端点 / 11 模块收敛到 **38 张**，分 P0 / P1 / P2 / 按需 四批。
+
+### 4.4.1 真实账号实测成果（2026-10-17，账号 175****1293）
+
+登录成功（uid=16797，token 有效期 2592000 秒 = 30 天），
+用真实 token 抓完50+ 鉴权端点，把 P1 交易表从「推断」升级为「实测驱动」。
+
+| 实体 | 实测叶子字段 | 样本文件 |
+|---|---|---|
+| User | **106** | `recon/raw/auth/user_getUserInfo.json` |
+| Order | **18**（2 条真实订单） | `recon/raw/auth/order_order_orderList.json` |
+| UserCollection | **17** | `recon/raw/auth/user_collection_user_collection_antMycollection.json` |
+| Synthesis | **22**（theme 6 + play 16） | `recon/raw/auth/synthesis_themeList.json` |
+| Union | **16** | `recon/raw/auth/union_user_myunion.json` |
+| Message | **7** | `recon/raw/auth/user_newList.json` |
+| Lottery | **46** | `recon/raw/auth/lottery_info_v2.json` |
+| 交易统计 | **10** | `recon/raw/auth/market_trade_tradingInformation.json` |
+
+机器可读字段清单：`recon/schema-map/measured-fields.txt`（可 diff，可直接生成 Model）。
+**字段覆盖率双向核验结果：原站字段零遗漏，DB 无冗余列。**
+
+**实测踩出的 6 个类型陷阱**（建表必须照抄，转 int 前端就崩）
+
+1. `order.order_status` 是 **int**，但同一条记录的 `order_type` / `num` 是 **string**
+2. `order.uc_ids` 存在 `null` 与 `"121926"` **两种形态** → 必须可空 varchar
+3. `synthesis_plan.start_time` 是 **13 位毫秒**（1792232280000），与其他表 10 位秒级不同
+4. `user_collection.sell_num` 是 string，`num`/`lock_num`/`is_collection` 是 int
+5. 分页信封 `per_page` 存在 string(`"10"`) 与 int(`10`) 两种形态
+6. `lottery` 几乎所有数值字段都 string 下发（`crystal="10"` / `lottery_max="316000"`）
+
+**参数破解成果**
+
+| 端点 | 必填参数 | 结论 |
+|---|---|---|
+| `market/trade/begBuyList` | `collection_id` + `sort` | `sort=desc` 唯一合法值；`new`/`price`/`0`/`default` 均报「排序方式错误」 |
+| `market/trade/tradingInformation` | `status` | 合法值 1/2/3（0 和空串报「状态错误」）；返回 10 字段统计骨架 |
+| `user_collection/getRecord` | 未破解 | 试 `collection_id`/`type`/`goods_type`/`record_type` 全部「参数错误」 |
+| `synthesis/material` | — | 原站返回 500，疑似已下线或依赖特殊登录态 |
+
+**测试账号数据几近为空**：市场挂单、求购单、寄售、地址、消息以外的列表全部返回空数组，
+但**信封字段齐全**，结构可信、缺的是行数据。已接受，不再纠缠。
+
+**`collection` 与 `blind_box` 不可合表**（极易混淆）：
+- `blind_box` = 未开盒的盒子，有 `batch`/`open_draw`/`goods_type`
+- `collection` = 已开盒的藏品，有 `collection_level`/`freeze_time`/`unfreeze_collection_id`
+- 开盒动作 = `blind_box` → `user_collection` + `collection`
+
+**已完成真实化的端点**：`index/afficheList`、`index/affichetypelist`、
+`index/afficheDetail/ids/{id}`、`box/blind_box/list`、`index/getConfig`（补了 `key` 校验）。
+
+**原站实测发现的偏差**（此前 Mock 全是错的）
+
+1. **盲盒 26 字段**，不是 8 个；含嵌套 `batch`（4 字段）+ `publisher`（2 字段）
+2. **`box/blind_box/list` 的 data 是裸数组**，不是分页信封 —— 与其它端点不同
+3. **「字符串包数字」**：`goods_type="2"` / `batch_id="14"` / `issuer_id="0"` 是字符串，改成 int 前端 `=== '2'` 会失效
+4. **`image` 字段原站不下发** —— 之前 Mock 凭猜测加的，被契约核验脚本抓出
+5. **`index/getConfig` 无 `key` 参数时返回 `code=0 msg='缺少key值'`**
+6. **`synthesis/*`、`crystal_goods/list` 原站返回 401**（需登录），之前误标为 public
+7. **`index/getSeries` 原站返回空数组**，之前 Mock 编了两条系列
+8. **`activity/index` 原站 `total=0`**（站点无数据）
+
+### 4.5 后端踩坑（2026-10-17，全部真实踩过）
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| **每个 HTTP 响应前面多出 922 字节 PHP 源码** | `config/middleware.php` **漏写 `<?php` 开头**，PHP 把整个文件当纯文本输出 | 补 `<?php`。定位方法：`ob_start()` 包住 `App::initialize()` 测泄漏字节数 |
+| **限流"配了但从不触发"（假安全）** | file 驱动 `Cache::inc()` 计数器不累积，连打 70 次仍是 1 | 改用数据库原子自增（`rate_limit` 表 + 唯一键）。**安全措施必须实测验证，不能只看配置** |
+| **限流判定误报"未生效"** | 限流响应 HTTP 状态码仍是 **200**，只有 `body.code=429`；用 `-o /dev/null -w %{http_code}` 检测会误判 | 检测必须 grep 响应体的 `"code":429`，见 `recon/check-ratelimit.sh` |
+| **全局中间件写了没生效** | 挂在了 `config/middleware.php`（该文件只读 `alias`/`priority`），正确位置是 **`app/middleware.php`** | 改挂 `app/middleware.php` |
+| **`Route::group(...)->middleware()` 静默失效** | ThinkPHP 8 的 `RuleGroup` **没有 `middleware()` 方法**，链式调用中断，`require` 的返回值(1) 被当响应体 | 全局中间件走 `app/middleware.php`；分组限流改用 `Route::rule()->middleware()` 逐条挂 |
+| **路由被重复注册** | `Http::loadRoutes()` 用 `glob('route/*.php')` 加载目录下**所有**文件，路由表放`route/` 会被自动加载一次再被 `require` 一次 | 路由表放子目录 `route/sub/route_api.php` |
+| **`Cache::inc` 抛 must be a valid callback** | `config/cache.php` 的 `'path' => ''` 空字符串导致 `Driver::$handler` 构造为 NULL | 给绝对路径 `runtime_path() . 'cache'` |
+| **`PDOException Access denied for 'root'`** | `config/database.php` 用了 `env('DB_HOST')`，但 `.env` 是 `[DATABASE]` 分段格式，ThinkPHP 要 `env('database.hostname')`（**小写段名 + 点号**） | 全部改为分段小写取值 |
+| **`column(null, 'id')` TypeError** | `column()` 第一参数必须是字段数组/string，不能传 null | `column('*', 'id')` |
+| **批量导入 SQL 语法错** | 拼 SQL 时字符串没加引号 → `Unknown column '寄售公告'` | `esc()` 区分类型：数值裸输出，字符串加引号 |
+| **登录脚本提取 token 得到空串** | 登录响应的 token 嵌在 `data.userinfo.token`，不是顶层 `data.token`；直接 `grep '"token"'` 会漏 | 用 `json.load(...)['data']['userinfo']['token']` 取，别用正则打平 |
+| **`ALTER USER 'gandart'@'localhost'` 后仍 Access denied** | MariaDB 存在 `gandart@localhost` 与 `gandart@127.0.0.1` **两条授权记录**，只改一条不生效 | 两条 host 都执行 `ALTER USER`；或用 `sudo mysql` 走 socket 改 |
+| **实测字段靠肉眼数不准** | User 实际 106 叶子字段（含 2 个嵌套对象），文档旧记「90+」 | 写脚本递归 flatten JSON 落成 `schema-map/measured-fields.txt`，再与 `information_schema.COLUMNS` 双向 diff |
+
+**⚠️ 一条通用教训**：本次连续 4 次把「响应里吐出 PHP 源码」误判为 opcache / 目录同名冲突 /
+`declare(strict_types)` 问题，实际原因只是**文件首行漏了 `<?php`**。
+下次遇到「响应体里出现某个文件的源码」，第一步就查**那个文件的开头是不是 `<?php`**，
+不要往缓存和路径上猜。
+
+**⚠️ 第二条通用教训**：账号能登录 ≠ 能抓到数据。
+本次测试账号登录成功、token 有效，但市场/求购/寄售列表**全部返回空数组**。
+判断端点结构是否可信，看**信封字段是否齐全**，不要看是否有行数据；
+更不要因为「没数据」就去推断字段。**空数组 + 齐全信封 = 结构可信，缺的是行。**
+
+---
+
+### 4.1 踩坑索引（联调相关）
+
+> 联调/断网校验的四件套见 §4.3。
 
 ---
 
@@ -141,7 +297,30 @@ path = path.split('?')[0]   // 关键
 |---|---|
 | 签到「立即签到」按钮 | 接口连通性**未验证**（写操作，未实际提交过一次） |
 | 测试账号有一笔未支付订单 | 导致快捷下单返回「存在其他尚未支付的订单」——**真实业务状态**，非缺陷 |
-| `order_status` / `order_type` 枚举 | 只观测到 `order_status=3`，完整枚举未知 |
+| `order_status` / `order_type` 枚举 | ✅ **已破解**（见 §5.4） |
+| `order_type` 的 6/7/10/31 含义 | ⚠️ 仍未知，需查 DB `artel_order` 或问产品 |
+
+### 5.4 订单枚举已破解（2026-10-17）
+
+原站前端把完整状态字典**硬编码在 webpack 模块 `95ba`**，被 6 个订单 chunk 共享引用。
+
+| 项 | 值 |
+|---|---|
+| 源文件 | `h5.gandart.shop/static/js/pages-order-list.{hash}.js` |
+| 访问式 | `orderStatusInfo[order_type][order_status]` |
+| 规模 | `order_type` **12** 个 × `order_status` **8** 个 = 48 组合 |
+| 产出 | `docs/api/OrderEnum.php`（可直接引入） |
+
+**踩坑记录**：逆向时用 `grep -oE 'name:"hash"'` 只提到 1 个 chunk。webpack 压缩后映射表形如 `("home":"de23136d",...)`，**正则要放宽到 8 位十六进制且不强制引号**才能提全 118 个。
+
+**枚举逆向的通用手法**（可复用到其他项目）：
+1. 抓 `index.{hash}.js` → 提取 chunk 名与哈希映射
+2. 并发下载全部 chunk
+3. `grep -l "目标字段名"` 定位承载字典的 chunk
+4. 找webpack 模块 ID（如 `95ba:function`）→ 提取该模块全文
+5. 写**括号匹配状态机**解析嵌套对象字面量（正则会被嵌套结构骗）
+
+⚠️ 维度方向要靠**访问式代码**确认（本项目是 `[order_type][order_status]`，不是反过来）—— 搞反了整张表就没意义。
 
 ---
 
@@ -158,11 +337,37 @@ npm run build
 
 # 本地预览（必须 Node，不能 vite preview）
 node server.cjs            # 或 PORT=4190 node server.cjs
+# 默认代理到本地 Mock；如需对照抓包：API_UPSTREAM=https://api.gandart.shop node server.cjs
 
-# 发布（必须带 language node）
+# Mock Server（后端）
+cd /workspace/mock-server/mock-app && php think run -p 4200
+# ⚠️ 改config/*.php 后必须重启进程，php think run 会缓存配置
+# ⚠️ 不要用 pkill -f "php think"，会连当前 shell 一起杀掉（见 §2）
+
+# 数据库
+mysqld_safe &                                     # 启动 MariaDB
+mysql -ugandart -p'Gandart#2026Dev' -h127.0.0.1 gandart
+cd /workspace/mock-server && mysql -ugandart -p'Gandart#2026Dev' -h127.0.0.1 gandart < sql/01-schema.sql
+
+# 四件套校验（改完必跑）
+cd /workspace/mock-server
+python3 check-offline.py     # 断网核验：确认没把依赖指回原站
+python3 check-coverage.py    # 端点覆盖
+python3 check-endpoints.py   # 逐端点实测
+python3 smoke.py             # 契约红线
+
+# 后端真实化专用校验（2026-10-17 新增）
+python3 /workspace/recon/verify-contract.py   # 本地输出 vs 原站实测，逐字段比对
+/workspace/recon/check-endpoints.sh           # 66 端点连通性（POST + 真实ID）
+/workspace/recon/check-ratelimit.sh           # 限流真实验证（grep body.code=429）
+python3 /workspace/recon/seed.py              # 原站样本 → 数据库种子
+
+# 发布（必须带language node）
 node /root/.codebuddy/skills/sites/scripts/publish.js \
   --dir /workspace/gandart-h5 --language node --start-cmd "node server.cjs"
 ```
+
+⚠️ 重建前必须 `rm -rf .assets-archive dist && mkdir -p dist`（见§4坑表最后一条）。
 
 ---
 
@@ -171,3 +376,58 @@ node /root/.codebuddy/skills/sites/scripts/publish.js \
 - git：工作区干净，HEAD = `6744fac`，已推送远端
 - 本地服务：未运行（需要时按 §6 启动）
 - 待办：无明确遗留（见 §5.3）
+
+### 7.1 前后端联调环境（2026-10-17 打通）
+
+| 服务 | 地址 | 说明 |
+|---|---|---|
+| 前端 dev | `http://127.0.0.1:5173` | `/api` `/addons` `/static/oss` → Mock；`/static/*` 图标由 public 提供 |
+| 生产预览 | `http://127.0.0.1:3000` | `node server.cjs`，同样默认代理本地 Mock |
+| Mock Server | `http://127.0.0.1:4200` | ThinkPHP 8.1.4，67 业务路由 + 二维码 + 图片服务，代码在 `/workspace/mock-server/` |
+
+**两者均默认打本地 Mock**，需对照抓包时才显式指定原站：
+
+```bash
+npm run dev                                        # 默认打本地 Mock（安全，不会误触发真实写操作）
+PROXY_TARGET=https://api.gandart.shop npm run dev  # 打原站做对照抓包
+```
+
+浏览器联调需先注入 token（路由守卫会拦未登录用户）：
+
+```bash
+curl -s -X POST http://127.0.0.1:5173/api/user/login \
+  -H "Content-Type: application/json" \
+  -d '{"account":"13900000001","password":"any"}'
+# 取 data.userinfo.token
+agent-browser eval "localStorage.setItem('token', JSON.stringify('<token>'))"
+```
+
+**已验证页面**：首页、市场、我的、我的藏品、订单列表、任务、商城、公告、签到、钱包、抽奖、合成记录、榜单（15 页均正常渲染，见 `docs/screenshots/index-mock.png`）。
+
+---
+
+## 8. 文档索引
+
+| 文档 | 用途 |
+|---|---|
+| `docs/api/BACKEND-API-SPEC.md` | **后端实现规范**（写后端照着做）：全局契约、Tier 1 端点、实体、安全清单、验收标准 |
+| `docs/api/OrderEnum.php` | 订单类型/状态枚举（逆向自原站，可直接引入） |
+| `docs/api/API.md` | 原站侦察证据（221 端点全表、实测参数、实体字段） |
+| `docs/依赖原站清单.md` | 11 处硬编码 URL + 21 个 oss() 调用点 + 端点分级 |
+| `docs/AUDIT-API-外链.md` | 缺陷清单（`CollectionList` 死路由等） |
+| `docs/decisions/OPEN-DECISIONS.md` | 悬而未决项登记册 |
+| `docs/screenshots/index-mock.png` | Mock 联调下的首页实拍（banner/四宫格/公告/藏品列表均正常） |
+| `docs/screenshots/index-offline.png` | **完全脱网后的首页实拍**（零外部请求、零404） |
+| `public/static/README.md` | 静态资源两条铁律+ 原站已失效资源清单 |
+
+### 已定的架构决策
+
+| 日期 | 决策 | 理由 |
+|---|---|---|
+| 2026-10-17 | **后端用 PHP（ThinkPHP）** | 与原站同构，221 端点路由约定天然复用，前端零改动 |
+| 2026-10-17 | **ThinkPHP 选 8.1.4 而非 6.x** | 6.1.3~8.0.4 命中 Composer 安全公告（反序列化 + XSS），8.1.4 不在受影响范围 |
+| 2026-10-17 | **联调期代理默认打 Mock** | 避免误触发原站真实写操作（下单/提现）；需打原站对照时显式传 `PROXY_TARGET` |
+| 2026-10-17 | **静态资源用 Vite 插件重写而非改源码** | 208 处 `src="/static/..."` 属既有复刻成果，不宜改动；解析层拦截可零改 .vue 解决。**注意插件必须限定 `env.command === 'serve'`** |
+| 2026-10-17 | **全站脱网：图标落盘 public/static，二维码本地生成，图片由后端缓存服务** | 消除全部原站依赖，可离线运行；图片采用「首次抓取+本地缓存」而非全量预下载，节省仓库体积 |
+| 2026-10-17 | **二维码输出 SVG 而非 PNG** | 沙箱 PHP 无 GD 扩展，PNG/ImageMagick Writer 均不可用；`SvgWriter` 纯 PHP，浏览器 `<img>` 可直接渲染 |
+| 2026-10-17 | **`server.cjs` 与 `vite.config.js` 默认代理本地 Mock** | 避免生产部署误连原站；对照抓包时用 `API_UPSTREAM` / `PROXY_TARGET` 显式指定 |

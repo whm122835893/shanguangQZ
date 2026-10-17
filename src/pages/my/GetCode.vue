@@ -11,7 +11,7 @@
  *   内容区.plr-26 @13,241 364x99（padding-left 27）
  *   手机号 uni-input @40,241 310x33  border-bottom 1px solid rgb(224,224,227)
  *     └ 实际 input @40,247 310x20  14px/400 rgb(171,171,171)  line-height 19.6px  type=text
- *     └ 原站已自动填入当前登录用户手机号 17587881293
+ *     └ 原站已自动填入当前登录用户手机号 175****1293
  *   验证码行 .flex.ptb-12.mt-20 @40,294 310x46
  *     border-bottom 1px solid rgb(224,224,227)
  *     └ 验证码 input @40,306.7 178x19.6  14px/400 rgb(35,38,47)  line-height 19.6px
