@@ -26,7 +26,7 @@ CREATE TABLE `user` (
   `avatar`                    varchar(255) NOT NULL DEFAULT '' COMMENT '头像路径',
   `level`                     int          NOT NULL DEFAULT 1,
   `gender`                    tinyint(1)   NOT NULL DEFAULT 0 COMMENT '0未知 1男 2女',
-  `birthday`                  int unsigned NOT NULL DEFAULT 0 COMMENT '生日 unixtime',
+  `birthday`                  int unsigned DEFAULT NULL COMMENT '生日 unixtime｜实测原站下发 null，必须可空',
   `bio`                       varchar(500) NOT NULL DEFAULT '' COMMENT '个人简介',
   `money`                     decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '余额',
   `agent_money`               decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '佣金余额',
@@ -137,7 +137,7 @@ DROP TABLE IF EXISTS `user_token`;
 CREATE TABLE `user_token` (
   `id`          int unsigned NOT NULL AUTO_INCREMENT,
   `user_id`     int unsigned NOT NULL,
-  `token`       char(36)     NOT NULL COMMENT 'uuid v4',
+  `token`       char(64)     NOT NULL COMMENT 'token 的 sha256 哈希(64 hex)，非明文——原站明文 token 是 36 位，存哈希后需 64 位',
   `device`      varchar(64)  NOT NULL DEFAULT '',
   `ip`          varchar(64)  NOT NULL DEFAULT '',
   `expiretime`  int unsigned NOT NULL COMMENT '过期时间 unixtime',
