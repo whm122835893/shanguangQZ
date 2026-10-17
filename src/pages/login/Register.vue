@@ -24,11 +24,12 @@
  *   POST /sms/send  body {mobile, event}   event: register / resetpwd
  *   POST /user/register                    注册
  */
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { sendSms, register } from '@/api'
 import { showToast } from 'vant'
 
+const route = useRoute()
 const router = useRouter()
 const mobile = ref('')
 const code = ref('')
@@ -36,6 +37,24 @@ const password = ref('')
 const inviterCode = ref('')
 const counting = ref(0)
 const submitting = ref(false)
+
+/* 邀请链接回填 —— 原站实测（2026-10-17）：
+     邀请页「复制链接」产出  /#/pages/login/register?a=1&content=Q28116797
+   原站拿到该链接后行为是：
+     1) 把 content 的值写入 localStorage.invite_code
+        （实测注册页打开后 localStorage 中确实存在 invite_code=Q28116797）
+     2) 回填到第 4 个输入框「邀请码」（实测该框 value="Q28116797"）
+   a=1 为「来自邀请渠道」标记，本身不参与回填，仅作来源标识。*/
+onMounted(() => {
+  const content = String(route.query.content || '').trim()
+  if (content) {
+    inviterCode.value = content
+    try { localStorage.setItem('invite_code', content) } catch (e) { /* 忽略 */ }
+  } else {
+    // 无 content 时回退读取历史缓存，避免用户从聊天记录再次打开链接丢失邀请码
+    try { inviterCode.value = localStorage.getItem('invite_code') || '' } catch (e) { /* 忽略 */ }
+  }
+})
 
 let timer = null
 
