@@ -77,6 +77,13 @@ CREATE TABLE `collection` (
   `unfreeze_collection_id`int unsigned NOT NULL DEFAULT '0'  COMMENT '解冻关联藏品 id',
   `freeze_time`           int unsigned NOT NULL DEFAULT '0'  COMMENT '冻结时间戳',
 
+  -- 以下 4 个字段实测来自 market/trade/collectionDetail 的「顶层」（与 name/listimg 同级），
+  -- 不在 floor_price 嵌套里。原站值 reprice_limit=999999999 / max_buy_price=999999999 表示不限。
+  `reprice_limit`         int unsigned NOT NULL DEFAULT '0'    COMMENT '重新定价上限，999999999=不限',
+  `reprice_min_limit`     varchar(16)  NOT NULL DEFAULT '0.00' COMMENT '重新定价下限，实测 string "0.00"',
+  `reprice_beg_max_limit` varchar(16)  NOT NULL DEFAULT '0.00' COMMENT '重新定价起始上限，实测 string "0.00"',
+  `max_buy_price`         int unsigned NOT NULL DEFAULT '0'    COMMENT '最高买入价，999999999=不限',
+
   `diysort`               int          NOT NULL DEFAULT '0',
   `is_show`               tinyint(1)   NOT NULL DEFAULT '1',
   `createtime`            int unsigned NOT NULL DEFAULT '0',

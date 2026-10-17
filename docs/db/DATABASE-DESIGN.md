@@ -50,6 +50,19 @@
 - `user_collection.sell_num` 是 string，`num` / `lock_num` / `is_collection` 是 int
 - 分页信封 `per_page` 在不同端点有 string / int 两种形态（`"10"` 与 `10`）
 
+### 1.2 实测发现的 3 个「语义陷阱」（v2.1 新增，比类型陷阱更致命）
+
+> 类型错了会崩，**语义搞错了会算错钱**。以下三条来自 v2.1 建表实测。
+
+| # | 字段对 | 实测值 | 为什么不能合并 |
+|---|---|---|---|
+| 1 | `pay_platform_service_rate` vs `platform_service_price` | **两者都是 `"0.07"`** | 前者是**费率**（7%），后者是**服务费金额**。数值巧合相同，语义完全不同，合并成一列 = 金额算错 |
+| 2 | `consignment_price_rule.*` vs `collection.reprice_*` | 分属两个层级 | `floor_price` 是**嵌套对象**（含 minprice/price_pro/low_price 等 11 字段），而 `reprice_limit`/`reprice_min_limit`/`reprice_beg_max_limit`/`max_buy_price` 是**藏品顶层字段**，与 `id`/`name` 同级。v2.1 首版误把后者归入规则表，双向核验时发现并纠正 |
+| 3 | `payment_channel.openstatus` | `1` / `0` | 属**用户是否已开户**，不是渠道是否启用。渠道启用是本地主数据 `is_open`。归错表会导致「渠道显示已启用但用户没开户」 |
+
+**判断纪律**：嵌套对象 = 独立实体边界。字段归属必须回原始 JSON 逐层核对，
+不能凭字段名前缀（`reprice_` 看起来像规则，实际是藏品属性）推断归属。
+
 ### 2. 「字符串包数字」是原站的既有约定，不是我们的选择
 
 实测确认的字符串包数字字段：
@@ -79,9 +92,14 @@
 
 ## 一、总表数结论
 
-### 1.1 原站全量（221 端点）≈ **52 张表**
+### 1.1 原站全量（213 端点）≈ **45 张表**
 
-按 31 个模块归并后，核心业务表 32 张 + 关联/流水表 20 张。
+按 31 个模块归并后，核心业务表 32 张 + 关联/流水表 20 张，扣除已下线模块（见下）。
+
+> **v2.1 修正**：原估 52 张基于 221 端点。v2.1 对 213 端点做全量实测后，
+> 发现 **24 个端点原站已下线**（`scoreguess` 竞猜 5/5 全 404、`synthesis/btch*` 批量合成 5/5 全 404、
+> `goods/*` 商品模块 4 个、资质校验类 4 个），对应约 7 张表不再需要。
+> 依据：`docs/db/ENDPOINT-SURVEY.md`。
 
 ### 1.2 本项目实际需要 ≈ **38 张表**
 
@@ -90,18 +108,20 @@
 原站 221 端点里有 159 个前端从未调用（公会、竞猜、资讯、抽签、水晶、点赞…），
 这些**暂不建表**，等前端真正接入再补。
 
-### 1.3 分级建表方案（v2.0 已落地 30 张）
+### 1.3 分级建表方案（v2.1 已落地 34 张）
 
 | 批次 | 表数 | 范围 | 状态 |
 |---|---|---|---|
 | **P0 批次** | **11** | 公告、公告类型、Banner、站点配置、系列、盲盒、盲盒批次、发行方、用户、限流 | ✅ 已建 |
-| **P1 批次**（交易核心） | **16** | 用户令牌、藏品、用户藏品、藏品流水、统一订单、订单明细、市场挂单、求购单、寄售、消息、合成主题、合成方案、抽奖、抽奖记录、公会配置、公会、公会成员 | ✅ **本轮新建，全部实测驱动** |
+| **P1 批次**（交易核心） | **16** | 用户令牌、藏品、用户藏品、藏品流水、统一订单、订单明细、市场挂单、求购单、寄售、消息、合成主题、合成方案、抽奖、抽奖记录、公会配置、公会、公会成员 | ✅ **v2.0 新建，全部实测驱动** |
+| **P1.5 批次**（市场规则与支付） | **4** | 寄售限价规则、支付渠道配置、用户支付账户、上传凭证 | ✅ **v2.1 新建，实测驱动** |
+| **系统安全** | **3** | 审计日志、幂等记录、短信验证码 | ✅ 已建 |
 | **P2 批次**（交易衍生） | ~11 | 转赠、签到、邀请、活动任务、评价、通知 | 待建 |
 | **按需**（暂不建） | ~14 | 公会扩展、竞猜、资讯、水晶、点赞… | 前端接入时再评估 |
 
-**当前实际落库 30 张表** = P0 11 张 + P1 交易核心 16 张 + 系统安全 3 张（`audit_log` / `idempotent` / `sms_code`）。
+**当前实际落库 34 张表** = P0 11 + P1 交易核心 16 + P1.5 市场规则与支付 4 + 系统安全 3。
 
-### 1.4 已落库表清单（30 张）
+### 1.4 已落库表清单（34 张）
 
 | # | 表名 | 说明 | 来源脚本 |
 |---|---|---|---|
@@ -133,6 +153,14 @@
 | 26 | `audit_log` | 审计日志（敏感字段脱敏） | 05 |
 | 27 | `idempotent` | 幂等记录（防重复下单/支付） | 05 |
 | 28 | `sms_code` | 短信验证码（只存哈希） | 05 |
+| 29 | `consignment_price_rule` | 寄售限价规则（实测 11 字段） | 06 |
+| 30 | `payment_channel` | 支付渠道配置（实测 10 字段） | 06 |
+| 31 | `user_payment_account` | 用户渠道开户信息 | 06 |
+| 32 | `oss_upload_credential` | OSS 临时上传凭证（实测 7 字段） | 06 |
+
+> 清单按「脚本内 `CREATE TABLE` 出现次序」编号，实际物理表数为 **34 张**
+> （`user` 与 `collection` 在 03/04 中各经历一次 `DROP` 重建，不重复计）。
+> 第 29–32 张即 **v2.1 新增的 P1.5 批次**，详见 §2 域 8。
 
 > `user` 实测 106 个叶子字段中，`token` 与 `url` 属登录/计算字段不落库；
 > `verification.email/mobile` 拆为 `email_verified`/`mobile_verified`；
@@ -288,6 +316,38 @@
 **`order_idempotent` 为什么必需**：`/order/pay/CreateOrder` 和 `/order/pay/doPay`
 都是非幂等写接口。前端弱网重试会重复下单。必须用「业务唯一键 + 唯一索引」拦截，
 这是支付类接口的**硬要求**，不能靠前端保证。
+
+### 域 8：市场规则与支付（v2.1 新建 4 张，脚本 `sql/06-market-rule-payment.sql`）
+
+> 全部字段来自实测样本，双向核验零遗漏、零冗余。
+
+| 表名 | 用途 | 实测来源端点 | 状态 |
+|---|---|---|---|
+| `consignment_price_rule` | 寄售/预付款限价与费率规则（11 字段） | `market/trade/collectionDetail` 的 `data.floor_price` + `market/Prepayment/collectionDetail` 的 `data` | ✅ 已建 |
+| `payment_channel` | 支付渠道主数据（汇付/沙sand/易宝/一付通等，10 字段） | `wallet/huifu/wallet` 的 `data.info` | ✅ 已建 |
+| `user_payment_account` | 用户在各渠道的开户信息（唯一键 user_id+channel_code） | 同上 | ✅ 已建 |
+| `oss_upload_credential` | 阿里云 STS 临时上传凭证（7 字段） | `common/uploadAccess` | ✅ 已建 |
+
+**`consignment_price_rule` 的类型分布（照抄，勿统一）**：
+
+| 类型 | 字段 |
+|---|---|
+| `int` | `minprice`、`price_pro`、`low_price` |
+| `varchar` | `price`、`price_ratio`、`platform_service_rate`、`pay_platform_service_rate`、`platform_service_price`、`real_price` |
+| `decimal(12,2)` | `service_price` |
+
+⚠️ 特别注意 `pay_platform_service_rate`（比率 `0.07` = 7%）与
+`platform_service_price`（金额 `0.07`）**数值相同、语义不同**，详见 §1.2 语义陷阱。
+
+**`oss_upload_credential` 的两处特殊处理**：
+
+- 原站字段 `key` → DB 列 `dir`：避免与 SQL 保留字/函数名冲突的显式改名。
+  这是**改名不是新增**，核验脚本已在 `RENAME` 映射中登记。
+- 原站 `code` 是响应信封恒为 `1`，**不落库**。
+
+> ⚠️ 安全提示：这是阿里云 STS **临时**凭证，`signature` + `policy` + `accessid`
+> 在有效期内等价于上传权限。本表仅用于「回放原站行为」的对拍验证，
+> 生产环境应改为运行时向阿里云换取、内存持有、不落库。
 
 ---
 
@@ -447,7 +507,7 @@
 契约出参统一走 `app/service/Formatter.php` 的**字段白名单**——
 多下发一个字段前端就可能踩未定义分支，白名单是唯一可靠护栏。
 
-> 表数口径说明：上表 25 行对应 30 张物理表（`union` 三表、`user` 等含拆列）。
+> 表数口径说明：上表 25 行对应 34 张物理表（`union` 三表、v2.1 新增 P1.5 四表、`user` 等含拆列）。
 
 **v2.0 关键实测样例（写 Model 时照抄）**：
 
@@ -489,6 +549,8 @@
 | P1 | 写 `User` / `UserToken` / `ArtelOrder` / `UserCollection` Model | 无 | 待做 |
 | P1 | 把 4 个已实测端点从内存 Mock 切到 DB 驱动 | Model 完成 | 待做 |
 | ✅ P1 | 建系统安全表（`audit_log` / `idempotent` / `sms_code`） | 无 | **已完成** |
+| ✅ P1.5 | 建市场规则与支付 4 表（限价规则/渠道配置/开户/上传凭证） | 实测样本 | **v2.1 已完成，双向核验通过** |
+| ✅ P1.5 | 213 端点全量实测测绘，修正原站表数 52→45 | 测试账号 | **v2.1 已完成** |
 | P2 | 转赠 / 签到 / 邀请 / 活动任务表 | 需实测字段 | 待做 |
 | P2 | 合成材料表（`synthesis/material` 当前 500） | 需端点恢复 | 阻塞中 |
 | 按需 | 公会扩展 / 竞猜 / 资讯 / 水晶等 ~14 张 | 前端接入时再评估 | — |
@@ -498,3 +560,10 @@
 1. **写 4 个 Model**（User / UserToken / ArtelOrder / UserCollection），字段直接照抄 §9 的实测样例
 2. **把 `user/getUserInfo`、`order/order/orderList`、`user_collection/antMycollection`、`user/newList` 四个端点从内存 Mock 切到 DB 驱动**
 3. 用现成的 `recon/verify-contract.py` 对这四个端点做逐字段核验 —— 复用已验证的核验机制，不重新发明
+4. 写 `ConsignmentPriceRule` / `PaymentChannel` / `UserPaymentAccount` 三个 Model —— 字段陷阱见 §1.2
+
+> **方法论天花板（如实记录）**：213 端点中仅 22 个返回真实行数据，56 个 `code=1` 但为空信封。
+> 原因：测试账号 uid 16797 数据几近为空（1 条藏品 / 2 条订单）；写操作端点无法裸调；
+> 多态表（`artel_order` 靠 `artel_order` 字段区分场景）掩盖了表数量。
+> 当前可确定「表的数量级与业务域归属」，**无法确定空信封端点的具体字段**。
+> 后台管理表（`admin_user` / `operation_log` / 素材管理）前端永远碰不到，估计还有 10–20 张，属完全黑箱，需后台账号或数据库直连才能推进。
