@@ -1,0 +1,128 @@
+/* ============================================================
+   设计 Token —— 全部取自原站 h5.gandart.shop 实测计算样式
+   （uni-app 编译产物 index.e8e070f7.css + 运行时 getComputedStyle）
+   ============================================================ */
+:root {
+  /* 主色 */
+  --gd-primary: #f23d4d;          /* 公告条 / 按钮 / 价格 / 强调 */
+  --gd-primary-dark: #e64340;
+  --gd-red: #f43530;
+
+  /* 文字 */
+  --gd-text: #4a4a4a;             /* 正文默认 rgb(74,74,74) */
+  --gd-text-dark: #23262f;        /* 标题 rgb(35,38,47) */
+  --gd-text-black: #333;          /* 区块标题 rgb(51,51,51) */
+  --gd-text-grey: #989faa;        /* tabbar 未选中 rgb(152,159,170) */
+  --gd-text-light: #adadad;
+  --gd-text-white: #fff;
+
+  /* 背景 */
+  --gd-bg: #f6f5f5;               /* 页面底色 rgb(246,245,245) */
+  --gd-bg-card: #fff;
+  --gd-bg-grey: #f7f7f7;
+  --gd-bg-mask: #d7d7d7;          /* 已售罄按钮 rgb(215,215,215) */
+  --gd-bg-tag: #404040;           /* 限量标签 rgb(64,64,64) */
+  --gd-nav-bg: rgba(255, 255, 255, 0.7); /* 导航胶囊底 */
+
+  /* 圆角 */
+  --gd-r-nav: 15px;               /* 搜索胶囊 */
+  --gd-r-circle: 50%;
+  --gd-r-banner: 10px;            /* 轮播图 */
+  --gd-r-notice: 17px;            /* 公告条 */
+  --gd-r-card: 7px;               /* 藏品卡 */
+  --gd-r-img: 6px;                /* 缩略图 */
+  --gd-r-btn: 6px;
+  --gd-r-ts: 10px;                /* 周年庆胶囊 */
+
+  /* 字号（取自原站实际使用值） */
+  --gd-fs-26: 26px;
+  --gd-fs-20: 20px;
+  --gd-fs-18: 18px;
+  --gd-fs-16: 16px;
+  --gd-fs-15: 15px;
+  --gd-fs-14: 14px;
+  --gd-fs-13: 13px;
+  --gd-fs-12: 12px;
+  --gd-fs-10: 10px;
+  --gd-fs-8: 8px;
+
+  /* 间距 */
+  --gd-plr: 16px;                 /* 页面左右安全边距 */
+  --gd-nav-h: 44px;               /* 导航栏高度 */
+  --gd-tabbar-h: 62px;
+
+  /* 布局固定值（像素级对齐原站 getBoundingClientRect） */
+  --gd-banner-h: 169px;           /* 首页轮播 358x169 */
+  --gd-notice-h: 33px;
+  --gd-entry-l-h: 202px;          /* 左侧大卡 156x202 */
+  --gd-entry-r-h: 97px;           /* 右侧小卡 195x97 */
+  --gd-goods-img: 74px;           /* 藏品缩略图 74x74 */
+  --gd-goods-card-h: 91px;        /* 藏品卡高度 */
+}
+
+/* ==================== 基础重置（对齐 uni-app 默认） ==================== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body, #app { height: 100%; }
+body {
+  font-size: var(--gd-fs-15);
+  color: var(--gd-text);
+  background: var(--gd-bg);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  font-family: "Times New Roman", Times, serif;
+}
+img { display: block; max-width: 100%; }
+a { text-decoration: none; color: inherit; }
+
+/* 原站实测：uni-app 未声明 font-family，浏览器默认 Times New Roman
+   数字/字母渲染宽度以此为准（昵称 GqdusoI30 实测 70.9px）。
+   !important 用于覆盖 Vant 的 -apple-system 字体栈。 */
+body,
+button,
+input,
+textarea,
+select,
+.van-* {
+  font-family: "Times New Roman", Times, serif !important;
+}
+ul, li { list-style: none; }
+button { border: 0; background: none; font: inherit; color: inherit; }
+input, textarea { border: 0; outline: none; background: none; font: inherit; }
+
+/* 滚动条（原站 H5 隐藏） */
+::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+/* ==================== 原站原子类（同名复用，保证像素一致） ==================== */
+.page-container { min-height: 100%; background: var(--gd-bg); }
+.flex { display: flex; }
+.flex-center { display: flex; align-items: center; justify-content: center; }
+.flex-ai-center { display: flex; align-items: center; }
+.flex-js-center { justify-content: center; }
+.flex-js-sb { justify-content: space-between; }
+.flex-dir-col { flex-direction: column; }
+.flex-center-sb { display: flex; align-items: center; justify-content: space-between; }
+.flex-1 { flex: 1; }
+
+.plr-16 { padding-left: var(--gd-plr); padding-right: var(--gd-plr); }
+.plr-14 { padding-left: 14px; padding-right: 14px; }
+.pb-10 { padding-bottom: 10px; }
+.ptb-16 { padding-top: 16px; padding-bottom: 16px; }
+.mt-8 { margin-top: 8px; }
+.mt-10 { margin-top: 10px; }
+.mt-16 { margin-top: 16px; }
+.mt-30 { margin-top: 30px; }
+.mt-31 { margin-top: 31px; }
+.mb-12 { margin-bottom: 12px; }
+.ml-4 { margin-left: 4px; }
+.ml-10 { margin-left: 10px; }
+
+.font-w-500 { font-weight: 500; }
+.font-w-bold { font-weight: 700; }
+.font-color-dark { color: var(--gd-text-dark); }
+.font-color-black { color: var(--gd-text-black); }
+.font-color-white { color: #fff; }
+.font-size-26 { font-size: var(--gd-fs-26); }
+.font-size-16 { font-size: var(--gd-fs-16); }
+.font-size-14 { font-size: var(--gd-fs-14); }
+.font-size-12 { font-size: var(--gd-fs-12); }
+.font-size-10 { font-size: var(--gd-fs-10); }

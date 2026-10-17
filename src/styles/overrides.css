@@ -1,0 +1,10 @@
+/* 覆盖层 —— 在 Vant 之后引入
+   原站实测：uni-app 未声明 font-family，浏览器默认 Times New Roman
+   数字/字母渲染宽度以此为准（昵称 GqdusoI30 实测 70.9px）。 */
+body,
+button,
+input,
+textarea,
+select {
+  font-family: "Times New Roman", Times, serif !important;
+}

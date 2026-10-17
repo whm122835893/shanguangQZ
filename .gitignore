@@ -1,0 +1,22 @@
+# 依赖与构建产物（可由 npm install / npm run build 重新生成）
+node_modules/
+dist/
+
+# 本地构建缓存（由 archive-assets.cjs 生成的上一版 assets 归档）
+.assets-archive/
+# 本地图片下载缓存（tools/ 下的抓图脚本产生）
+.img-cache/
+
+# 本地环境与日志
+.env
+.env.local
+*.log
+npm-debug.log*
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+
+# 注意：public/static 下的图片是项目运行必需的资源（已本地化，不依赖外链），
+# 因此 public/ 不做忽略，必须随仓库提交。

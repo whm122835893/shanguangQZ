@@ -1,0 +1,17 @@
+<script setup>
+/**
+ * 带缓存的 webview —— 1:1 复刻原站 pages/webview/webview-storage
+ *
+ * 路由：#/pages/webview/webview-storage?url=xxx
+ *
+ * 原站 390x844 实测（整页 bg #fff）：
+ *   uni-page-head @0,0 390x44 bg #fff；返回 i @5,6 27x27；标题为空
+ *   uni-web-view（fullscreen）@0,44 390x800
+ *     与 webview 结构一致，差异在于原站对加载内容做了 storage 缓存复用
+ */
+import WebView from './WebView.vue'
+</script>
+
+<template>
+  <WebView />
+</template>
