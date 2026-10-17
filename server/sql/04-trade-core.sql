@@ -117,6 +117,10 @@ CREATE TABLE `user` (
   `sync_time`                 int unsigned NOT NULL DEFAULT 0,
   `r_status`                  tinyint(1)   NOT NULL DEFAULT 0,
   `is_vip`                    tinyint(1)   NOT NULL DEFAULT 0,
+  -- ⚠️ is_exist 仅在 user/login 下发（实测值恒为 1），getUserInfo 不下发。
+  --    语义未确认（疑为「账号资料是否已完善」），只有一个样本值无法反推。
+  --    先按实测落列对齐契约，语义待确认 —— 见 docs/decisions/OPEN-DECISIONS.md。
+  `is_exist`                  tinyint(1)   NOT NULL DEFAULT 1 COMMENT '登录下发字段，实测恒为1，语义待确认',
   -- 以下为 statistics 嵌套对象的统计字段，由定时任务回写，不接受用户直接写入
   `invited_count`             int          NOT NULL DEFAULT 0 COMMENT 'statistics.invited_count',
   `buy_count`                 int          NOT NULL DEFAULT 0 COMMENT 'statistics.buy_count',
@@ -500,7 +504,7 @@ CREATE TABLE `union` (
 DROP TABLE IF EXISTS `union_member`;
 CREATE TABLE `union_member` (
   `id`         int unsigned NOT NULL AUTO_INCREMENT,
-  `union_id`   int unsigned NOT NULL,
+  `union_id`   int unsigned DEFAULT NULL COMMENT '所属公会；未加入公会时为 NULL（实测 is_join=0 / union=null）',
   `user_id`    int unsigned NOT NULL,
   `power`      int          NOT NULL DEFAULT 0 COMMENT '权限：实测 my.power=0',
   `is_manage`  tinyint(1)   NOT NULL DEFAULT 0,
@@ -508,8 +512,11 @@ CREATE TABLE `union_member` (
   `sort`       varchar(32)  NOT NULL DEFAULT '' COMMENT 'my.sort 实测是字符串',
   `createtime` int unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_union_user` (`union_id`,`user_id`),
-  KEY `idx_user` (`user_id`)
+  -- ⚠️ 唯一索引必须只用 user_id：MySQL 的 UNIQUE 把 NULL 视作互不相同，
+  --    若仍用 (union_id,user_id)，同一用户能插入多条「未加入」记录。
+  --    业务上一个人最多一条成员关系（加入或不加入都是一条）。
+  UNIQUE KEY `uk_user` (`user_id`),
+  KEY `idx_union` (`union_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公会成员';
 
 SET FOREIGN_KEY_CHECKS = 1;
