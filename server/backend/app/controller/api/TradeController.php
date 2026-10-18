@@ -9,17 +9,10 @@ use app\common\Response;
 use app\controller\api\Concerns\HasAuth;
 
 /**
- * 交易域控制器（v2.3 从 Trade 拆分）
+ * 交易域控制器（v2.3 从 Trade 拆分）—— 订单/市场单/寄售/藏品详情/求购单
  *
- * 订单详情、市场单详情、寄售、藏品详情、求购单、用户中心辅助
- *
- * 🔴 本文件全部端点当前为【MOCK】——用内存假数据补齐联调缺口，
- *    待拿到原站成功响应样本后逐个切换为 DB 驱动。
- *    切DB 时禁止凭端点名猜字段，必须以 recon/raw2/ 的实测样本为准。
- *
- * 🔐 鉴权统一走 HasAuth::currentUser()（sha256 + 有效期 + 账号状态），
- *    禁止用 Request::hasToken()（只判非空，是后门）。
- *
+ * 🔴 全部端点当前为【MOCK】。切 DB 时禁止凭端点名猜字段，必须以 recon/ 实测样本为准。
+ * 🔐 鉴权走 HasAuth::currentUser()，禁用 Request::hasToken()（只判非空，是后门）。
  * ⚠️ 改动后必须跑：php tools/contract/run.php
  *
  * @package app\controller\api

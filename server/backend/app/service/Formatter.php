@@ -177,4 +177,32 @@ final class Formatter
         }, $rows);
     }
 
+    /**
+     * Banner 列表项 —— 原站实测严格 5 字段
+     *
+     * 🔴 为什么白名单在 Model 上再抄一份：
+     *    Banner::LIST_FIELDS 是「模型自述的契约」，这里是「出参的实际执行点」。
+     *    两处都写死5 个，是刻意的冗余——任一处被人放宽，契约回归会立刻红。
+     *
+     * 🔴 url 实测是空串""，不是 null：
+     *    DB 里url 存了NULL 的话这里会下发 null，前端 `banner.url ? ... : ...`
+     *    分支就走错。统一 (string) 兜底成""。
+     *
+     * @param array $rows
+     * @return array
+     */
+    public static function bannerList(array $rows): array
+    {
+        return array_map(static function ($row) {
+            $src = is_array($row) ? $row : $row->toArray();
+            return [
+                'id'       => (int) ($src['id'] ?? 0),
+                'image'    => (string) ($src['image'] ?? ''),
+                'url'      => (string) ($src['url'] ?? ''),
+                'url_type' => (int) ($src['url_type'] ?? 1),
+                'is_show'  => (int) ($src['is_show'] ?? 0),
+            ];
+        }, $rows);
+    }
+
 }

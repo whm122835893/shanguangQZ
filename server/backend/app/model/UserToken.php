@@ -41,8 +41,15 @@ class UserToken extends Model
 
     protected $autoWriteTimestamp = false;
 
-    /** token 默认有效期（秒）：7 天 */
-    public const TTL = 7 * 24 * 3600;
+    /**
+     * token 默认有效期（秒）
+     *
+     * 🔴 30 天，不是 7 天 —— 这是实测值，不是我拍脑袋的安全值：
+     *    recon/raw/_login.json 实测 expiretime - time = 2592000 秒 = 30 天，
+     *    且原站同时下发 expires_in=2592000，两者自洽。
+     *    写成 7 天会让用户第 8 天被强制登出，与原站行为不符。
+     */
+    public const TTL = 30 * 24 * 3600;
 
     protected $schema = [
         'id'         => 'int',
@@ -57,12 +64,31 @@ class UserToken extends Model
     /**
      * 生成新 token（明文只在返回给前端的那一次存在）
      *
+     * 🔴 token 形态对齐原站：标准 UUID v4 带连字符，形如
+     *    f02e9a8a-a003-446d-b133-21de91a98fea（36 字符含 4 个连字符）。
+     *    此前用的是 36 位无连字符 hex（bin2hex(random_bytes(18))），
+     *    长度巧合相同但**字符集和分隔符不同**—— 前端若做正则校验
+     *    （如localStorage 里按 UUID 解析）或日志按 - 切分，都会出错。
+     *    用 random_bytes 生成 v4：设 version/variant 位，保证格式合法。
+     *
      * @return array{plain:string, hash:string, expiretime:int}
      */
     public static function issue(string $device = 'unknown', string $ip = ''): array
     {
-        // 36 位随机串，与原站实测形态一致（UUID v4 去掉连字符）
-        $plain = bin2hex(random_bytes(18));
+        $bytes    = random_bytes(16);
+        $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);   // version 4
+        $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);   // variant 10x
+
+        $hex = bin2hex($bytes);
+        $plain = sprintf(
+            '%s-%s-%s-%s-%s',
+            substr($hex, 0, 8),
+            substr($hex, 8, 4),
+            substr($hex, 12, 4),
+            substr($hex, 16, 4),
+            substr($hex, 20, 12)
+        );
+
         return [
             'plain'      => $plain,
             'hash'       => self::hash($plain),

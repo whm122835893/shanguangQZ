@@ -5,6 +5,7 @@ namespace app\controller\api;
 
 use app\model\ArtelOrder;
 use app\service\MockData;
+use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
 use app\service\TradeFormatter;
@@ -112,7 +113,7 @@ class OrderController
         // ⚠️ 此端点是标准五字段分页（与 newList 的 {count,list} 不同）
         return Response::page(
             array_map(static fn($r) => TradeFormatter::order($r), $rows),
-            $total, $s, $p
+            $total, $s, $p, Msg::ORDER_LIST
         );
     }
 

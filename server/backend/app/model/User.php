@@ -175,6 +175,9 @@ class User extends Model
         'sync_time'                                => 'int',
         'r_status'                                 => 'int',
         'is_vip'                                   => 'int',
+        // 🔴 仅 user/login 下发（实测恒为 1），getUserInfo 不下发。
+        //    语义未确认 —— 单一样本值无法反推，先对齐契约，语义见 OPEN-DECISIONS。
+        'is_exist'                                 => 'int',
         // ↓ statistics.{invited_count,buy_count,sale_count,join_day} 拆列
         'invited_count'                            => 'int',
         'buy_count'                                => 'int',

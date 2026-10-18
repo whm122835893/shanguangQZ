@@ -55,9 +55,20 @@ final class Response
     /**
      * ThinkPHP 标准分页结构
      * 前端强依赖这五个字段，缺一不可。
+     *
+     * 🔴 $msg 不是可选装饰，是端点级契约：
+     *    原站每个端点的 msg 都不同且稳定（banner列表/订单列表/公告列表…），
+     *    是从 240 个实测样本里统计出来的，不是随口填的。
+     *    漏传会返回空串，构成契约漂移（已真实发生过一次）。
+     *    新增分页端点时务必从样本里抄原值，不要留空。
      */
-    public static function page(array $list, int $total, int $perPage = 10, int $currentPage = 1): \think\response\Json
-    {
+    public static function page(
+        array $list,
+        int $total,
+        int $perPage = 10,
+        int $currentPage = 1,
+        string $msg = ''
+    ): \think\response\Json {
         $perPage   = max(1, $perPage);
         $lastPage  = (int) max(1, ceil($total / $perPage));
         $current   = max(1, $currentPage);
@@ -68,7 +79,7 @@ final class Response
             'current_page' => $current,
             'last_page'    => $lastPage,
             'data'         => $list,
-        ]);
+        ], $msg);
     }
 
     private static function make(int $code, string $msg, $data): \think\response\Json

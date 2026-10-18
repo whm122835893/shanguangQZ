@@ -7,9 +7,12 @@ use app\service\Audit;
 use app\model\Collection;
 use app\model\Message;
 use app\service\MockData;
+use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
+use app\service\LoginFormatter;
 use app\service\TradeFormatter;
+use app\service\UnionFormatter;
 use app\model\User;
 use app\model\UserCollection;
 use app\model\UserCredential;
@@ -17,18 +20,11 @@ use app\model\UserToken;
 use app\controller\api\Concerns\HasAuth;
 
 /**
- * 用户域控制器（v2.3 从 Core 拆分）
+ * 用户域控制器（v2.3 从 Core 拆分）—— 登录/用户信息/藏品持有/消息/地址/排行/公会
  *
- * 登录、鉴权、用户信息、藏品持有、消息、地址、排行、公会
- *
- * 🔴 数据来源分两类，勿混淆：
- *   【DB  】已按原站实测响应建表并灌入真实数据
- *   【MOCK】原站需登录或已下线的端点，暂用内存假数据
- *
- * 🔐 鉴权统一走 HasAuth::currentUser()，禁止只判断 token 非空。
- *
- * ⚠️ 改动本文件后必须跑契约回归：php tools/contract/run.php
- *    退出码非 0 表示与原站实测契约不一致，禁止提交。
+ * 🔴【DB】已按实测建表灌数；【MOCK】原站需登录或已下线，暂用内存假数据。
+ * 🔐 鉴权走 HasAuth::currentUser()，禁止只判断 token 非空。
+ * ⚠️ 改动后必须跑 php tools/contract/run.php，退出码非 0 禁止提交。
  *
  * @package app\controller\api
  */
@@ -132,11 +128,16 @@ class UserController
             'password' => $password,
         ], true);
 
-        // 原站契约：data.userinfo.token
-        return Response::ok(['userinfo' => [
-            'token'  => $issued['plain'],   // ⚠️ 明文只在这里下发一次
-            'user_id'=> (int) $user['id'],
-        ]]);
+        // 原站契约：data.userinfo 实测 26 字段（含 token/expiretime/expires_in/is_exist）
+        // 🔴 不能只回 {token, user_id} 两个字段 —— 前端拿不到 expiretime
+        //    就无法在登录态过期前主动登出，会出现「token 失效但界面还显示已登录」。
+        //    实测字段集见 LoginFormatter 白名单（recon/raw/_login.json）。
+        return Response::ok(['userinfo' => LoginFormatter::login(
+            $user,
+            $issued['plain'],   // ⚠️ 明文只在这里下发一次
+            $issued['expiretime'],
+            UserToken::TTL
+        )], Msg::LOGIN);
     }
 
     /** POST /user/getUserInfo 当前用户完整信息【DB】 */
@@ -147,7 +148,7 @@ class UserController
         if ($deny !== null) {
             return $deny;
         }
-        return Response::ok(TradeFormatter::userInfo($user));
+        return Response::ok(TradeFormatter::userInfo($user), Msg::USER_INFO);
     }
 
     /** POST /user_collection/user_collection/antMycollection 我的藏品【DB】 */
@@ -197,7 +198,7 @@ class UserController
 
         return Response::ok(TradeFormatter::userCollectionPage(
             $list, $total, $s, $p, $currentCount, $consignment
-        ));
+        ), Msg::MY_COLLECTION);
     }
 
     /** POST /user/newList 我的消息【DB】 */
@@ -224,76 +225,17 @@ class UserController
         return Response::ok(TradeFormatter::messageList(
             array_map(static fn($r) => TradeFormatter::message($r), $rows),
             $count
-        ));
+        ), Msg::MESSAGE_LIST);
     }
-
-    /** POST /user_collection/user_collection/getRecord 购买/流转记录 */
-
-    public function collectionRecord()
-    {
-        [$user, $authErr] = $this->currentUser();
-        if ($authErr !== null) {
-            return $authErr;
-        }
-
-        ['page' => $p, 'size' => $s] = Request::page();
-        $total = 6;
-        $r = MockData::paginate(function ($i) {
-            $o = MockData::order(18554 + $i, 2, 2);
-            $o['collection_name'] = MockData::collection($i)['name'];
-            return $o;
-        }, $total, $p, $s);
-        return Response::page($r['list'], $r['total'], $s, $p);
-    }
-
-    /** POST /user/address_list 收货地址 */
-
-    public function addressList()
-    {
-        [$user, $authErr] = $this->currentUser();
-        if ($authErr !== null) {
-            return $authErr;
-        }
-
-        return Response::ok([
-            [
-                'id'      => 1,
-                'name'    => '王*绵',
-                'mobile'  => '175****1293',
-                'province'=> '贵州省',
-                'city'    => '贵阳市',
-                'district'=> '观山湖区',
-                'address' => '观山湖区某街道 1 号',
-                'is_default' => 1,
-            ],
-        ]);
-    }
-
-    // ==================== 市场 / 行情 ====================
 
     /**
-     * POST /market/market/getMarketGoodsListByGoodsId
-     * 🔴 数据在 data.list，不是 data.data（前端踩坑点，SPEC §4.1）
+     * POST /union/user/myunion —— 我的公会【DB 驱动】
+     *
+     * 实测（2026-10-18抓取）：data = {config, my, union, join}
+     *   config 6 字段公会规则 / my 8 字段成员关系 / union=null / join=[]
+     *
+     * 契约要点见 UnionFormatter 的类注释。
      */
-
-    public function userRank()
-    {
-        ['page' => $p, 'size' => $s] = Request::page();
-        $total = 10;
-        $r = MockData::paginate(function ($i) {
-            return [
-                'rank'  => $i + 1,
-                'id'    => 16797 - $i,
-                'nickname' => '用户' . ($i + 1),
-                'avatar'    => '/defautAvatar.png',
-                'money'     => (string)(10000 - $i * 500) . '.00',
-            ];
-        }, $total, $p, $s);
-        return Response::page($r['list'], $r['total'], $s, $p);
-    }
-
-    /** POST /union/user/myunion 我的公会 */
-
     public function myUnion()
     {
         [$user, $authErr] = $this->currentUser();
@@ -301,6 +243,6 @@ class UserController
             return $authErr;
         }
 
-        return Response::ok(null, '未加入公会');
+        return Response::ok(UnionFormatter::myUnion((int) $user['id']), Msg::UNION_MY);
     }
 }

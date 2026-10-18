@@ -22,16 +22,25 @@ $app = new think\App();
 $app->initialize();
 
 use app\model\ArtelOrder;
+use app\model\Banner;
 use app\model\Collection;
 use app\model\Message;
 use app\model\User;
 use app\model\UserCollection;
+use app\service\Formatter;
+use app\service\LoginFormatter;
 use app\service\TradeFormatter;
+use app\service\UnionFormatter;
 use app\service\UserFormatter;
 use tools\contract\ContractDiff;
 
 // 样本目录：默认为 /workspace/recon/raw2，可用环境变量覆盖
-$SAMPLE_DIR = getenv('GANDART_SAMPLE_DIR') ?: '/workspace/recon/raw2';
+// 🔴 三批样本目录都要扫：不同端点散落在不同批次。
+//    banner 的样本在 raw/（第一批），早期只读 raw2 会导致该用例静默跳过——
+//    静默跳过比失败更危险，所以 check() 里「跳过」也计为失败。
+$SAMPLE_DIR  = getenv('GANDART_SAMPLE_DIR') ?: '/workspace/recon/raw2';
+$EXTRA_DIR   = getenv('GANDART_SAMPLE_DIR3') ?: '/workspace/recon/raw3';
+$SAMPLE_DIR1 = getenv('GANDART_SAMPLE_DIR1') ?: '/workspace/recon/raw';
 
 if (!is_dir($SAMPLE_DIR)) {
     fwrite(STDERR, "样本目录不存在：{$SAMPLE_DIR}\n");
@@ -42,9 +51,15 @@ if (!is_dir($SAMPLE_DIR)) {
 /** 读原站样本的 data 部分 */
 function raw(string $name): array
 {
-    global $SAMPLE_DIR;
-    $j = json_decode((string) file_get_contents($SAMPLE_DIR . '/' . $name . '.json'), true);
-    return is_array($j) ? $j : [];
+    global $SAMPLE_DIR, $EXTRA_DIR, $SAMPLE_DIR1;
+    foreach ([$SAMPLE_DIR, $SAMPLE_DIR1, $EXTRA_DIR] as $dir) {
+        $f = $dir . '/' . $name . '.json';
+        if (is_file($f)) {
+            $j = json_decode((string) file_get_contents($f), true);
+            return is_array($j) ? $j : [];
+        }
+    }
+    return [];
 }
 
 $results = [];
@@ -57,7 +72,8 @@ function check(
     array $local,
     string $envelopePath,
     array $ignoreFields = [],
-    int $matchId = 0
+    int $matchId = 0,
+    ?string $localMsg = null
 ): void {
     global $results, $failed;
 
@@ -69,7 +85,7 @@ function check(
     }
     if (!is_array($node) || $node === []) {
         // 无成功样本可比 —— 显式标红，不可静默跳过
-        $results[] = sprintf('%-18s ⚠ 跳过（原站样本无成功数据）', $label);
+        $results[] = sprintf('%-18s [跳过]（原站样本无成功数据）', $label);
         $failed++;
         return;
     }
@@ -91,7 +107,7 @@ function check(
             $first = $node[0];
         }
         if (!is_array($first)) {
-            $results[] = sprintf('%-18s ⚠ 跳过（原站样本无 id=%d 的记录）', $label, $matchId);
+            $results[] = sprintf('%-18s [跳过]（原站样本无 id=%d 的记录）', $label, $matchId);
             $failed++;
             return;
         }
@@ -102,11 +118,34 @@ function check(
     $d = new ContractDiff();
     $d->compare($first, $local, $ignoreFields);
     $fieldCount = count($first);
-    if ($d->passed()) {
-        $results[] = sprintf('%-18s PASS  字段 %d/%d 全部一致', $label, $fieldCount, $fieldCount);
+
+    /**
+     * 🔴 信封 msg 也必须一致 —— 这是本用例新增的护栏。
+     *
+     * 踩过的坑：banner 端点 data 层 5 字段全对，但原站 msg="banner列表"，
+     * 本地返回空串。data 层比对完全查不出来，因为 msg 在信封层。
+     * 而前端 axios 拦截器在 code===0 时会把 msg 直接 toast 给用户，
+     * 成功路径虽不弹窗，但两端不一致就是契约漂移，必须归零。
+     *
+     * @var string|null $rawMsg 原站实测 msg
+     */
+    $rawMsg = (string) ($sample['msg'] ?? '');
+    $msgBad = $localMsg !== null && $localMsg !== $rawMsg;
+
+    if ($d->passed() && !$msgBad) {
+        $results[] = sprintf(
+            '%-18s PASS  字段 %d/%d 全部一致  msg="%s"',
+            $label, $fieldCount, $fieldCount, $rawMsg
+        );
     } else {
         $failed++;
-        $results[] = $d->report($label, $fieldCount);
+        $results[] = $d->report($label, $fieldCount) ;
+        if ($msgBad) {
+            $results[] = sprintf(
+                '  ↳ ❌ 信封 msg 不一致：原站="%s" 本地="%s"',
+                $rawMsg, $localMsg
+            );
+        }
     }
 }
 
@@ -117,94 +156,8 @@ echo str_repeat('=', 64) . "\n";
  * 运行时字段：每次请求都会变，与契约无关，比对时应排除
  *
  * logintime / loginip / login_count —— 登录动作改写，不是「结构契约」
- */
-const RUNTIME_FIELDS = ['logintime', 'loginip', 'updatetime'];
-
-// ---- 1. getUserInfo ----
-try {
-    $u = User::find(16797);
-    if ($u === null) {
-        $results[] = 'getUserInfo        ⚠ 跳过（本地无 user id=16797，请先跑 seed.php）';
-        $failed++;
-    } else {
-        check('getUserInfo', 'user_getuserinfo', UserFormatter::userInfo($u), 'data', RUNTIME_FIELDS);
-    }
-} catch (\Throwable $e) {
-    $results[] = 'getUserInfo        异常：' . $e->getMessage();
-    $failed++;
-}
-
-// ---- 2. orderList（原站样本 2 条，逐条按 id 匹配比对）----
-try {
-    $sampleRows = raw('order_order_orderlist')['data']['data'] ?? [];
-    if ($sampleRows === []) {
-        $results[] = 'orderList          ⚠ 跳过（原站样本 total=0）';
-        $failed++;
-    } else {
-        $n = 0;
-        $bad = 0;
-        foreach ($sampleRows as $row) {
-            $id = (int) ($row['id'] ?? 0);
-            $rec = $id > 0 ? ArtelOrder::find($id) : null;
-            if ($rec === null) {
-                $results[] = sprintf('  orderList id=%d ⚠ 本地缺该订单', $id);
-                $failed++;
-                continue;
-            }
-            $n++;
-            check('orderList#' . $id, 'order_order_orderlist',
-                TradeFormatter::order($rec->toArray()), 'data.data', [], $id);
-        }
-        if ($n === 0) {
-            $results[] = 'orderList          ⚠ 跳过（本地无对应订单）';
-        }
-        unset($bad);
-    }
-} catch (\Throwable $e) {
-    $results[] = 'orderList          异常：' . $e->getMessage();
-    $failed++;
-}
-
-// ---- 3. antMycollection ----
-try {
-    $rows = UserCollection::where('user_id', 16797)->order('id', 'asc')->select()->toArray();
-    if ($rows === []) {
-        $results[] = 'antMycollection    ⚠ 跳过（本地无持有记录）';
-        $failed++;
-    } else {
-        // 必须复刻 Controller 的关联加载，否则测的不是真实链路
-        // （Controller 在 Core.php 里手工建 $collMap 后作为第二参数传入）
-        $cids = array_values(array_unique(array_map(
-            static fn($r) => (int) $r['collection_id'],
-            $rows
-        )));
-        $collRows = Collection::whereIn('id', $cids)->select()->toArray();
-        $collMap  = [];
-        foreach ($collRows as $cr) {
-            $collMap[(int) $cr['id']] = $cr;
-        }
-        check('antMycollection', 'user_collection_user_collection_antmycollection',
-            TradeFormatter::userCollection($rows[0], $collMap[(int) $rows[0]['collection_id']] ?? null),
-            'data.data');
-    }
-} catch (\Throwable $e) {
-    $results[] = 'antMycollection    异常：' . $e->getMessage();
-    $failed++;
-}
-
-// ---- 4. newList（消息）----
-try {
-    $list = Message::order('id', 'asc')->select()->toArray();
-    if ($list === []) {
-        $results[] = 'newList            ⚠ 跳过（本地无消息）';
-        $failed++;
-    } else {
-        check('newList', 'user_newlist', TradeFormatter::message($list[0]), 'data.list');
-    }
-} catch (\Throwable $e) {
-    $results[] = 'newList            异常：' . $e->getMessage();
-    $failed++;
-}
+ */require __DIR__ . '/Cases.php';
+runContractCases();
 
 echo implode("\n", $results) . "\n";
 echo str_repeat('=', 64) . "\n";

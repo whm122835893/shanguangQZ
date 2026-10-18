@@ -36,19 +36,37 @@ $fresh = in_array('--fresh', $argv, true);
 
 /**
  * 读取实测样本
+ *
+ * 🔴 为什么要扫多个目录：
+ *    样本分三批抓（raw=56 / raw2=174 / raw3=10），不同端点散落在不同批次。
+ *    banner 的样本就在 raw/ 里，早期版本只读 raw2 导致漏灌——
+ *    漏灌不会报错，只会静默返回空列表，最难查。
  */
 function sample(string $name): array
 {
-    $path = __DIR__ . '/../../recon/raw2/' . $name;
-    if (!is_file($path)) {
-        // 回退到项目外路径
-        $path = '/workspace/recon/raw2/' . $name;
+    $dirs = [
+        __DIR__ . '/../../recon/raw2/',
+        __DIR__ . '/../../recon/raw/',
+        __DIR__ . '/../../recon/raw3/',
+        '/workspace/recon/raw2/',
+        '/workspace/recon/raw/',
+        '/workspace/recon/raw3/',
+    ];
+    // 环境变量优先，便于临时指向别处样本
+    foreach (['GANDART_SAMPLE_DIR', 'GANDART_SAMPLE_DIR1', 'GANDART_SAMPLE_DIR3'] as $env) {
+        $d = getenv($env);
+        if ($d) {
+            array_unshift($dirs, rtrim($d, '/') . '/');
+        }
     }
-    if (!is_file($path)) {
-        fwrite(STDERR, "找不到样本文件: {$name}\n");
-        exit(1);
+    foreach ($dirs as $dir) {
+        $path = $dir . $name;
+        if (is_file($path)) {
+            return json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+        }
     }
-    return json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+    fwrite(STDERR, "找不到样本文件: {$name}\n已尝试:\n  " . implode("\n  ", $dirs) . "\n");
+    exit(1);
 }
 
 echo "=== 读取实测样本 ===\n";
@@ -62,7 +80,7 @@ echo "  用户 1 / 订单 " . count($orderSample['data']) . " / 藏品 "
 if ($fresh) {
     echo "\n=== --fresh：清空目标表 ===\n";
     Db::execute('SET FOREIGN_KEY_CHECKS=0');
-    foreach (['user_credential', 'user_token', 'message', 'user_collection', 'artel_order', 'collection', 'user'] as $t) {
+    foreach (['user_credential', 'user_token', 'message', 'user_collection', 'artel_order', 'collection', 'user', 'banner'] as $t) {
         Db::execute("TRUNCATE TABLE `{$t}`");
         echo "  TRUNCATE {$t}\n";
     }
@@ -109,6 +127,21 @@ $userRow['invited_count']   = (int) ($statistics['invited_count'] ?? 0);
 $userRow['buy_count']       = (int) ($statistics['buy_count'] ?? 0);
 $userRow['sale_count']      = (int) ($statistics['sale_count'] ?? 0);
 $userRow['join_day']        = (int) ($statistics['join_day'] ?? 0);
+
+// 🔴 is_exist 只在 user/login 下发，getUserInfo 样本里没有这个键，
+//    所以上面的遍历不会带上它。必须从登录样本单独取，
+//    否则留DB 默认值 —— 本地默认已是 1，但那就变成「默认值恰好对」而非「实测对」，
+//    一旦有人改 DEFAULT 就会静默漂移。
+$loginSamplePath = (getenv('GANDART_SAMPLE_DIR1') ?: '/workspace/recon/raw') . '/_login.json';
+if (is_file($loginSamplePath)) {
+    $loginUi = json_decode((string) file_get_contents($loginSamplePath), true)['data']['userinfo'] ?? [];
+    if (array_key_exists('is_exist', $loginUi)) {
+        $userRow['is_exist'] = (int) $loginUi['is_exist'];
+        echo "  is_exist 取自登录样本 = {$userRow['is_exist']}\n";
+    } else {
+        echo "  ⚠ 登录样本无is_exist 字段，跳过（契约测试会标红）\n";
+    }
+}
 
 // 敏感字段：原样取自实测样本，不做任何二次脱敏
 //
@@ -300,12 +333,6 @@ foreach ($msgSample['list'] as $row) {
 }
 
 // ==================== 汇总 ====================
-echo "\n=== 灌入完成，核对行数 ===\n";
-foreach (['user', 'user_credential', 'collection', 'user_collection', 'artel_order', 'message'] as $t) {
-    $n = Db::table($t)->count();
-    echo "  {$t}: {$n}\n";
-}
-
 /**
  * 🔴 契约断言：原站 id 必须原样保留，不能被数据库自增覆盖
  *
@@ -313,6 +340,94 @@ foreach (['user', 'user_credential', 'collection', 'user_collection', 'artel_ord
  *         原站 id 是契约的一部分 —— 用户可见，且 readMsgById 类接口按 id 寻址。
  *         这个断言放在最后，任何人改 seed 逻辑导致 id 漂移都会立刻失败。
  */
+// ==================== 公会域（实测 union/user/myunion） ====================
+echo "\n=== 灌入公会配置与成员关系 ===\n";
+
+// 样本：recon/raw3/union_user_myunion.json
+//   config 6 字段：user_num / have_rate / be_invite_back_rate
+//                  / have_be_invite_back_rate / manager_user_rate / user_rate
+//   my     8 字段：is_join=0 且 union=null -> 未加入公会
+//
+// 🔴 have_rate 等是**倍数**不是百分比（实测 1.88），不要按 88% 理解。
+$unionSamplePath = getenv('GANDART_SAMPLE_DIR3') ?: '/workspace/recon/raw3';
+$unionSamplePath .= '/union_user_myunion.json';
+if (is_file($unionSamplePath)) {
+    $us  = json_decode((string) file_get_contents($unionSamplePath), true)['data'] ?? [];
+    $cfg = $us['config'] ?? [];
+    $my  = $us['my'] ?? [];
+
+    // 用 save() 而非 create()：seed 必须可重复执行，create() 撞主键会抛异常
+    $cfgRow = \app\model\UnionConfig::find(1) ?: new \app\model\UnionConfig();
+    $cfgRow->save([
+        'id'                       => 1,
+        'user_num'                 => (int) ($cfg['user_num'] ?? 0),
+        'have_rate'                => (string) ($cfg['have_rate'] ?? 0),
+        'be_invite_back_rate'      => (string) ($cfg['be_invite_back_rate'] ?? 0),
+        'have_be_invite_back_rate' => (string) ($cfg['have_be_invite_back_rate'] ?? 0),
+        'manager_user_rate'        => (string) ($cfg['manager_user_rate'] ?? 0),
+        'user_rate'                => (string) ($cfg['user_rate'] ?? 0),
+    ]);
+    echo "  union_config 已灌入（6 字段）\n";
+
+    // 🔴 union_id 必须可为 NULL：is_join=0 表示未加入，公会 id 本就不存在。
+    $memRow = \app\model\UnionMember::find((int) ($my['id'] ?? 0)) ?: new \app\model\UnionMember();
+    $memRow->save([
+        'id'         => (int) ($my['id'] ?? 0),
+        'union_id'   => null,
+        'user_id'    => (int) ($my['id'] ?? 0),
+        'power'      => (int) ($my['power'] ?? 0),
+        'is_manage'  => (int) ($my['is_manage'] ?? 0),
+        'is_join'    => (int) ($my['is_join'] ?? 0),
+        'sort'       => (string) ($my['sort'] ?? ''),
+        'createtime' => time(),
+    ]);
+    echo "  union_member 已灌入（is_join={$my['is_join']}, sort={$my['sort']}）\n";
+} else {
+    echo "  样本缺失，跳过公会域：{$unionSamplePath}\n";
+}
+// ==================== Banner（实测banner/show/getBanner） ====================
+echo "\n=== 灌入 banner（实测 2 条）===\n";
+
+// 样本：recon/raw/banner_show_getBanner.json
+//   data.data[] = {id, image, url:"", url_type:1, is_show:1}
+//
+// 🔴 三条实测事实，灌入时必须照抄，不能"优化"：
+//   1. url 是空串""，不是 null——原站两条 banner 都没配跳转
+//   2. 排序是 id desc（2 在前 1 在后），说明 sort 两行相同或未配置
+//   3. 实测只下发 5 字段，title/sort/createtime/updatetime 不下发
+$bannerSample = sample('banner_show_getBanner.json');
+$bannerRows   = $bannerSample['data']['data'] ?? [];
+foreach ($bannerRows as $b) {
+    $bid = (int) $b['id'];
+    // save() 而非 create()：seed 必须可重复执行
+    $row = \app\model\Banner::find($bid) ?: new \app\model\Banner();
+    $row->save([
+        'id'         => $bid,
+        // title/sort 在样本里不存在（不下发），留 DB 默认值，不编造
+        'title'      => '',
+        'image'      => (string) ($b['image'] ?? ''),
+        'url'        => (string) ($b['url'] ?? ''),
+        'url_type'   => (int) ($b['url_type'] ?? 1),
+        'sort'       => 0,
+        'is_show'    => (int) ($b['is_show'] ?? 0),
+        'createtime' => time(),
+        'updatetime' => time(),
+    ]);
+}
+echo "  banner 已灌入 " . count($bannerRows) . " 条（title/sort 样本无值，留默认）\n";
+
+// ==================== 汇总 ====================
+// ⚠️ 必须放在所有域之后。曾放在中间，导致 banner 恒显示 0 ——
+//    汇总表说谎比没有汇总更糟。
+echo "\n=== 灌入完成，核对行数 ===\n";
+foreach ([
+    'user', 'user_credential', 'collection', 'user_collection',
+    'artel_order', 'message', 'banner', 'union_config', 'union_member',
+] as $t) {
+    $n = Db::table($t)->count();
+    echo "  {$t}: {$n}\n";
+}
+
 echo "\n=== 契约断言：原站 id 保留 ===\n";
 $expectIds = [
     'user'          => $userSample['id'],
@@ -340,6 +455,29 @@ foreach ($orderSample['data'] as $row) {
         echo "  ✅ artel_order.id={$oid} 已保留\n";
     } else {
         echo "  ❌ artel_order.id={$oid} 丢失\n";
+        $fail++;
+    }
+}
+
+// banner 逐条核对：id + image 必须与实测逐字节一致
+// 🔴 为什么单独核对而不同行放进 $expectIds：
+//    banner 的 image 是带路径的长字符串，id 对上但image 被截断/转码同样算契约破坏。
+foreach ($bannerRows as $b) {
+    $bid = (int) $b['id'];
+    $got = Db::table('banner')->where('id', $bid)->find();
+    if (!$got) {
+        echo "  ❌ banner.id={$bid} 丢失\n";
+        $fail++;
+        continue;
+    }
+    $imgOk = $got['image'] === (string) $b['image'];
+    $urlOk = (string) $got['url'] === (string) $b['url'];
+    if ($imgOk && $urlOk) {
+        echo "  ✅ banner.id={$bid} image/url 与实测一致\n";
+    } else {
+        echo "  ❌ banner.id={$bid} 不一致\n";
+        echo "     实测 image=" . $b['image'] . "\n";
+        echo "     实际 image=" . $got['image'] . "\n";
         $fail++;
     }
 }
