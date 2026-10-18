@@ -80,7 +80,7 @@ Route::rule('order/pay/fastOrderNew',     [OrderController::class, 'fastOrderNew
 Route::rule('order/pay/doPay',            [OrderController::class, 'doPay'],             'GET|POST'); // [MOCK]
 
 // ==================== 订单 ====================
-Route::rule('order/order/orderList',                       [OrderController::class, 'orderList'],         'GET|POST'); // [MOCK]
+Route::rule('order/order/orderList',                       [OrderController::class, 'orderList'],         'GET|POST'); // [DB]
 Route::rule('order/order/orderDetail/ids/:id',             [OrderController::class, 'orderDetail'],       'GET|POST'); // [MOCK]
 Route::rule('order/order/MarketOrderDetail/ids/:id',       [OrderController::class, 'marketOrderDetail'], 'GET|POST'); // [MOCK]
 Route::rule('order/order/myConsignment',                   [OrderController::class, 'myConsignment'],     'GET|POST'); // [MOCK]
