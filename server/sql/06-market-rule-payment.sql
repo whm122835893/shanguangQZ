@@ -40,6 +40,12 @@ DROP TABLE IF EXISTS `consignment_price_rule`;
 CREATE TABLE `consignment_price_rule` (
   `id`                       int unsigned NOT NULL AUTO_INCREMENT,
   `collection_id`            int unsigned NOT NULL DEFAULT 0 COMMENT '藏品ID，0 表示全局默认规则',
+  -- 🔴 scene 区分两端点：tips 文案不同，不能共用一条记录
+  --   实测 trade 版是「寄售出价下限为昨日平均成交价100%」，
+  --         prepay 版是「出价下限为昨日平均成交价100%」——只差「寄售」二字。
+  --    其余 10 个字段两端点完全相同。早期唯一索引是 uk_collection(collection_id)，
+  --    一藏品只能一条记录，无法同时满足两端点。改为 (collection_id, scene) 联合唯一。
+  `scene`                    varchar(16)  NOT NULL DEFAULT 'trade' COMMENT '端点场景：trade=寄售交易 / prepay=预付',
   `minprice`                 int          NOT NULL DEFAULT 0 COMMENT '最低限价（实测 int 20）',
   `price_pro`                int          NOT NULL DEFAULT 1 COMMENT '价格保护系数（实测 int 1）',
   `price_price_ratio`        varchar(16)  NOT NULL DEFAULT '100' COMMENT '出价下限占昨日均价比（实测 string "100" = 100%）',
@@ -55,7 +61,7 @@ CREATE TABLE `consignment_price_rule` (
   `createtime`               int unsigned NOT NULL DEFAULT 0,
   `updatetime`               int unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_collection` (`collection_id`),
+  UNIQUE KEY `uk_collection_scene` (`collection_id`, `scene`),
   KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='寄售限价与费率规则（实测 11 字段，来源 market/*/collectionDetail.floor_price）';
 

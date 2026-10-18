@@ -314,6 +314,28 @@ Mock 的内存假数据已开始替换为数据库驱动。**原则：每个接�
 
 ---
 
+### 4.6 后端踩坑（2026-10-18 v2.4，collectionDetail 切 DB 期间）
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| **`POST /api/order/pay/CreateVipOrder` 返回 500 HTML 错误页** | v2.3 拆分时 `makeOrder()` 留在 TradeController 且是 `private`，PayController 的 5 个 `Create*Order` 端点仍在调 `$this->makeOrder()`——两类互不继承，必然 fatal | 抽 `Concerns\MakesOrders` trait 共用。**trait 内不能再 `use HasAuth`**（与宿主同名私有方法冲突，PHP 直接 fatal），约定宿主自行提供 `currentUser()` |
+| **TradeController 加两个方法后 354 行超限** | 切 DB 的新方法带完整实测注释（这是必须的），+55 行就破 300 | 按域拆：register/resetPwd → 新 `AccountController`（user/ 路径本就属账号域）；unionLogs → `UserController`（与 myUnion 同域）；死代码 makeOrder 删。**先删死代码再拆，能少拆一个文件** |
+| **seed.php 的 emoji 门禁误判 16 处** | 控制台输出用了 ✅/❌/⚠ 作状态标记。门禁扫描范围此前只含 app/route，本轮扩到 seed.php 才暴露 | 换成 `[OK]`/`[FAIL]`/`[WARN]` 文本标记（与 tools/contract/ 报告同一约定）。CLI 脚本虽非 UI，但统一消除扫描歧义 |
+| **连续快速登录后续请求全 401** | 登录限流生效（安全设计正确），但验证脚本连着打多个请求会踩到 | 验证脚本的登录与后续请求之间 `sleep 2`；这是**特性不是 bug**，别为跑通把它关掉 |
+
+**⚠️ 本轮最重要的一条教训**：私有方法跨类调用，`php -l` 不报、lint 不报、
+类型检查也不报，只有真实 HTTP 请求打到那个端点才暴露。
+本项目已两次栽在同一形态（ContentPlayController 漏 `use HasAuth`、
+PayController 调不存在的 `makeOrder`），**两次都是 HTTP 层复验抓出的**。
+结论：任何「跨文件的方法/类引用」改动，门禁里必须有一条真实 curl，
+不能只跑静态检查。
+
+**⚠️ 第二条**：拆文件降行数时，**先找死代码再拆**。
+TradeController 的 `makeOrder` 零调用方（调用方全在 PayController），
+删掉它 + 移走 register/resetPwd 就从 354 降到 ~280，不需要第三个文件。
+
+---
+
 ### 4.1 踩坑索引（联调相关）
 
 > 联调/断网校验的四件套见 §4.3。

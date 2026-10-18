@@ -4,7 +4,7 @@
 > 每次 Phase 开始时把未决项复现到工作上下文最前面，逐条判断能否关闭。
 > 已关闭的项可升格为 ADR。
 
-**汇总：2 未决+ 0 已决**
+**汇总：4 未决+ 0 已决**
 
 ---
 
@@ -65,3 +65,66 @@ D 类（服务异常）15 / E 类（404 已下线）32 / F 类（401 需重抓�
 - 读端点 `market/trade/collectionDetail`、`market/Prepayment/collectionDetail` 有A 类样本，可立即切
 
 **Resolution**（待填）
+---
+
+## D-003 collection_id=8（思维粒子）无费率规则数据
+
+| 项 | 内容 |
+|----|------|
+| Date | 2026-10-18 |
+| Source | Phase 3 · market/trade/collectionDetail 切 DB |
+| slug | `existing-design-boundary` |
+| Related Constraints | seed 铁律：只灌实测样本里有的值，禁止编造 |
+| Current Leaning | 保持现状（该藏品请求返回空 data），不造假规则 |
+| Blocked By | 原站只抓到 collection id=1 的 collectionDetail 样本；id=8 的规则值无实测出处 |
+| Resolves When | 抓到 id=8（或任意其他藏品）的 collectionDetail 样本，补灌即可 |
+| Status | **OPEN** |
+
+**背景**
+
+`collection` 表现有两条记录：id=8（思维粒子，来自 antMycollection 嵌套样本）与
+id=1（小小键盘-P仔，来自 collectionDetail 样本）。但 `consignment_price_rule`
+只有 id=1 的 trade/prepay 两条规则。
+
+前端若对 id=8 打开寄售/预付页面，会拿到 `data: []`。前端两个消费页面
+（SubmitBegBuy.vue / SubmitEntrust.vue）均有 `r.data` 判空保护，不会崩，
+但页面文案为空。
+
+**已做的处置**
+
+返回空数组而非伪造规则。伪造一条"看起来合理"的费率（比如照抄 id=1 的值）
+会让前端按错误的 7% 费率计算手续费并展示给用户——**编造的费率比空数据危险得多**。
+
+---
+
+## D-004 私有方法跨类调用 fatal —— 为什么必须抽 trait 而非复制
+
+| 项 | 内容 |
+|----|------|
+| Date | 2026-10-18 |
+| Source | Phase 3 · TradeController 拆分门禁 |
+| slug | `existing-design-boundary` |
+| Related Constraints | 单文件 ≤300 行 P0 红线；PHP trait 方法冲突规则 |
+| Current Leaning | 共用逻辑抽 `Concerns\MakesOrders` trait，两个 Controller 分别 `use` |
+| Blocked By | 无（已实施并验证） |
+| Resolves When | 已关闭于 v2.4：CreateVipOrder 等 5 端点实测从 500 恢复 200 |
+| Status | **RESOLVED** |
+
+**背景**
+
+v2.3 大拆分时 `makeOrder()` 留在 TradeController 且是 `private`，而
+PayController 的 5 个 `Create*Order` 端点仍在调 `$this->makeOrder()`。
+两类互不继承 → 必然 fatal。实测：`POST /api/order/pay/CreateVipOrder`
+返回 500 HTML 错误页。
+
+**为什么静态检查发现不了**
+
+PHP 方法解析在运行期。`php -l` 只查语法；lint 不查跨类方法存在性；
+只有真实 HTTP 请求打到那个端点才暴露。同类坑本项目已犯过一次
+（ContentPlayController 漏 `use HasAuth`），**两次都是 HTTP 层复验抓出的**。
+
+**为什么抽 trait 而不是各复制一份**
+
+复制两份 = 未来改下单逻辑要改两处，必然漏改。trait 是单一出处。
+注意 trait 内不能再 `use HasAuth`——与宿主类的 `use HasAuth` 构成
+同名私有方法冲突，PHP 直接 fatal。约定宿主自行提供 `currentUser()`。
