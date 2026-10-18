@@ -12,7 +12,18 @@ for dirpath, _, files in os.walk(ROOT):
         full = os.path.join(dirpath, fn)
         rel = '/' + os.path.relpath(full, ROOT).replace(os.sep, '/')
         orig_key = rel          # 原站原始路径（接口返回的 .png/.jpg）
-        im = Image.open(full)
+        try:
+            im = Image.open(full)
+            im.verify()          # verify() 后需重新 open，见下
+            im = Image.open(full)
+        except Exception as e:
+            # 🔴 2026-10-19 踩到：目录里混进过 OSS 的 XML 错误响应
+            #    （<Error><Code>NoSuchKey，422 字节，存成了 .jpg）。
+            #    旧版在 Image.open() 处直接抛 UnidentifiedImageError，
+            #    整轮转码中断、oss-map.json 一条都没生成——一个坏文件
+            #    毁掉整个流程。这里改为跳过并告警，坏文件单独处理。
+            print(f'  [跳过] 非图片或损坏 {rel} ({os.path.getsize(full)}B): {e}')
+            continue
         is_png = rel.lower().endswith('.png')
         has_alpha = is_png and (
             im.mode in ('RGBA', 'LA') or (im.mode == 'P' and 'transparency' in im.info)
