@@ -71,7 +71,7 @@ Route::rule('market/market/marketGoodsDetail',            [MarketController::cla
 Route::rule('market/market/getMarketList',                [MarketController::class, 'marketList'],              'GET|POST'); // [MOCK]
 Route::rule('market/market/marketList',                   [MarketController::class, 'marketBoxList'],           'GET|POST'); // [MOCK]
 Route::rule('market/market/MarketDetail/ids/:id',         [MarketController::class, 'marketDetail'],            'GET|POST'); // [MOCK]
-Route::rule('market/trade/tradingInformation',            [MarketController::class, 'tradingInformation'],      'GET|POST'); // [MOCK]
+Route::rule('market/trade/tradingInformation',            [MarketController::class, 'tradingInformation'],      'GET|POST'); // [DB]
 Route::rule('market/trade/begBuyList',                    [MarketController::class, 'begBuyList'],              'GET|POST'); // [MOCK]
 
 // ==================== 交易下单 ====================

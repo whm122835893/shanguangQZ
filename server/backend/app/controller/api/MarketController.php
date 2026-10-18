@@ -3,18 +3,21 @@ declare(strict_types=1);
 
 namespace app\controller\api;
 
+use app\service\MarketFormatter;
+use app\service\MarketStats;
 use app\service\MockData;
+use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
 use app\controller\api\Concerns\HasAuth;
 
 /**
- * 市场域控制器（v2.3 从 Core 拆分）
+ * 市场域控制器（v2.3 从 Core 拆分，v2.4 tradingInformation 切 DB）
  *
  * 挂单查询、藏品详情、行情、求购列表
  *
  * 🔴 数据来源分两类，勿混淆：
- *   【DB  】已按原站实测响应建表并灌入真实数据
+ *   【DB  】已按原站实测响应建表并灌入真实数据（tradingInformation）
  *   【MOCK】原站需登录或已下线的端点，暂用内存假数据
  *
  * 🔐 鉴权统一走 HasAuth::currentUser()，禁止只判断 token 非空。
@@ -108,8 +111,23 @@ class MarketController
         return Response::ok($g);
     }
 
-    /** POST /market/trade/tradingInformation 委托挂单列表 */
-
+    /**
+     * POST /market/trade/tradingInformation —— 藏品三态行情【DB 驱动，v2.4 切】
+     *
+     * 实测（recon/raw2/market_trade_tradinginformation.json，样本账号无数据故全空）：
+     *   入参 {status:1|2|3, page:1, goods_id:"124"}
+     *     status: 1=成交记录 2=当前求购 3=当前寄售（依据前端 SellInfo.vue 复刻注释）
+     *   出参 9 键：list[] + 6 个 int 统计 + today_highest_price/today_lowest_price = null
+     *
+     * 🔴 契约要点（改这里前必须知道）：
+     *   1. today_highest_price / today_lowest_price 无成交时是 **null 不是 0**——
+     *      前端据此走「无数据」分支，给 0 会显示「今日最高 ￥0」的假成交
+     *   2. list 行结构**无样本**（实测 list=[]，myConsignment 样本同样空），
+     *      本地三表对该藏品也无行。禁止拿 MockData::order 的行结构凑数——
+     *      那是跨端点套用字段，正是明令禁止的「凭端点名猜字段」
+     *   3. 统计语义（成交态判定、地板价算法）无非空样本可验证，
+     *      详见 docs/decisions/OPEN-DECISIONS.md D-005；本地数据状态下恒等于样本值
+     */
     public function tradingInformation()
     {
         [$user, $authErr] = $this->currentUser();
@@ -117,10 +135,20 @@ class MarketController
             return $authErr;
         }
 
-        ['page' => $p, 'size' => $s] = Request::page();
-        $total = 3;
-        $r = MockData::paginate(fn($i) => MockData::order(18600 + $i, 2, 1), $total, $p, $s);
-        return Response::page($r['list'], $r['total'], $s, $p);
+        // status 暂不参与计算（list 行结构无样本，见方法注释第 2 条）；
+        // 接收但不使用，避免前端传缺时报警
+        Request::int('status', 1);
+        $collectionId = Request::int('goods_id');
+
+        // 统计走 MarketStats（契约用例共用同一入口，测的是真实查询而非副本）
+        $stats = $collectionId > 0
+            ? MarketStats::tradingStats($collectionId)
+            : MarketStats::emptyStats();
+
+        return Response::ok(
+            MarketFormatter::tradingInformation($stats),
+            Msg::TRADING_INFORMATION
+        );
     }
 
     /** POST /market/trade/begBuyList 求购列表 */

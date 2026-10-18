@@ -47,6 +47,7 @@ use app\model\UserCollection;
 use app\service\Formatter;
 use app\service\LoginFormatter;
 use app\service\MarketFormatter;
+use app\service\MarketStats;
 use app\service\TradeFormatter;
 use app\service\UnionFormatter;
 use app\service\UserFormatter;
@@ -260,6 +261,25 @@ if (!function_exists('runContractCases')) {
         }
     } catch (\Throwable $e) {
         $results[] = 'prepayDetail        异常：' . $e->getMessage();
+        $failed++;
+    }
+
+    // ---- 9. market/trade/tradingInformation（空态契约：9 键 + 双 null）----
+    //
+    // 🔴 本用例锁的是「空态结构契约」而非数据值：
+    //    样本账号在原站无挂单/成交，9 个键的类型是唯一可依的契约——
+    //    6 个 int 统计 + list=[] + today_highest_price/today_lowest_price = null。
+    //    若有人把 null "优化"成 0，或删掉某个统计键，本用例立刻红。
+    //    取数走 MarketStats（与 Controller 同一入口），测的是真实查询链路。
+    try {
+        // goods_id=1 是本地真实存在的藏品；三表对它均无数据，
+        // 统计必为 0/null——与样本一致且是真实查询结果，不是硬编码
+        $stats = MarketStats::tradingStats(1);
+        check('tradingInfo', 'market_trade_tradinginformation',
+            MarketFormatter::tradingInformation($stats),
+            'data', [], 0, '交易信息');
+    } catch (\Throwable $e) {
+        $results[] = 'tradingInfo          异常：' . $e->getMessage();
         $failed++;
     }
 
