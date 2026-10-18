@@ -143,8 +143,10 @@ function check(
         $failed++;
         $results[] = $d->report($label, $fieldCount) ;
         if ($msgBad) {
+            // 文本标记不用 emoji —— CLI 输出约定见 pitfalls gate/emoji-in-cli-console-output
+            // （seed.php 当年清过一轮，这处 ↳❌ 是漏网的，本轮补上）
             $results[] = sprintf(
-                '  ↳ ❌ 信封 msg 不一致：原站="%s" 本地="%s"',
+                '  -> [FAIL] 信封 msg 不一致：原站="%s" 本地="%s"',
                 $rawMsg, $localMsg
             );
         }
