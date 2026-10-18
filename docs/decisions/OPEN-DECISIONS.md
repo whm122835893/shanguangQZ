@@ -4,7 +4,7 @@
 > 每次 Phase 开始时把未决项复现到工作上下文最前面，逐条判断能否关闭。
 > 已关闭的项可升格为 ADR。
 
-**汇总：5 未决 + 1 已决**
+**汇总：7 未决 + 1 已决**
 
 ---
 
@@ -171,3 +171,71 @@ PHP 方法解析在运行期。`php -l` 只查语法；lint 不查跨类方法�
 
 统计查询抽 `app/service/MarketStats.php`（Controller 与契约用例共用同一入口，
 用例测真实查询而非副本）；本地数据状态下所有统计恒等于样本值，且是真实查询结果。
+
+---
+
+## D-006 begBuyList / batchPayOrder 非空态契约无样本
+
+| 项 | 内容 |
+|----|------|
+| Date | 2026-10-18 |
+| Source | Phase 3 · begBuyList + batchPayOrder 切契约 |
+| slug | `waiting-on-external-condition` |
+| Related Constraints | begBuyList 样本 `recon/raw4/market_trade_begBuyList_161.json` 是 B 类空态；batchPayOrder 样本同为 B 类；求购写端点 `begBuy` 无成功样本（承 D-002） |
+| Current Leaning | 空态契约已全锁（begBuyList 5 键键序 + per_page/last_page=0；batchPayOrder 2 字段 int 0）；`data` 行结构在拿到非空样本前恒 `[]` |
+| Blocked By | 账号需在原站有求购单 / batchBuy 待付批量，才能触发非空路径 |
+| Resolves When | 抓到 begBuyList total>0 或 batchPayOrder data 非空的样本 |
+| Status | **OPEN** |
+
+**背景**
+
+两个端点的**空态契约**均已实测锁定并经契约用例 + HTTP 验证双重覆盖：
+
+- `begBuyList`：5 键信封 `{current_page, data, last_page, per_page, total}`，键序 current_page 开头（与 orderList 的 total 开头相反），空态 `last_page=0 / per_page=0`（不是 `Response::page()` 的 `max(1,...)` 钳位值）
+- `batchPayOrder`：`{batch_order_id: int 0, data: []}`。恒空态是**复探实证**——原站账号挂着 2 笔市场单 + 2 笔 VIP 待付单时仍空，说明「批量」专指 batchBuy 待付批量，不是占位符
+
+**无法确认的部分（等非空样本）**
+
+1. `begBuyList` 的 `data` 行结构：前端复刻注释只列 `{price, num, time, ...}` 带省略号。禁止用 orderList 行结构（`MockData::order`）凑数——跨端点套用字段正是本项目明令禁止的
+2. `batchPayOrder` 非空时 `batch_order_id` 的语义（批量组 id？）与 `data` 行结构
+3. begBuyList 非空时 `per_page` 是否变正值、`sort=asc/desc` 的排序字段语义
+
+**已做的处置**
+
+本地 `beg_buy_order` 表 0 行（无种子来源，D-002），`total` 恒 0 与样本一致，
+且是 `MarketStats::begBuyOrderCount()` 真实查询结果。契约用例注释已标注：
+将来灌入求购数据本用例会红——那是预期信号，非空契约需要新样本才能确立。
+
+---
+
+## D-007 CreateVipOrder 的 order_id 递增语义无法区分 per-account 还是全局自增
+
+| 项 | 内容 |
+|----|------|
+| Date | 2026-10-18 |
+| Source | Phase 3 · CreateVipOrder 复探原站 |
+| slug | `waiting-on-external-condition` |
+| Related Constraints | 无列表端点暴露 VIP 订单（orderList 不含 VIP 单，已实证），id 语义不影响任何已测契约 |
+| Current Leaning | 本地按 `vip_order` 表主键全局自增实现；账号过滤查询时表现与 per-account 递增不可区分 |
+| Blocked By | 需要**第二个账号**在原站下一单才能区分 |
+| Resolves When | 用第二账号调 CreateVipOrder：若返回 "1" 则是 per-account，若接着第一账号的计数（如 "3"）则是全局自增 |
+| Status | **OPEN** |
+
+**背景**
+
+复探原站时同账号连调两次 `CreateVipOrder`，`order_id` 从 `"1"` 变 `"2"`——
+这证明订单**真实持久化且 id 递增**（内存实现会恒返回 "1"），但无法区分：
+
+- per-account：每个账号从 "1" 开始计数
+- 全局自增：全表一个计数器，第二账号首单会拿到 "3"
+
+**为什么暂时不影响交付**
+
+1. 没有任何已实测端点**列出** VIP 订单（`orderList` 实测不含 VIP 单），id 只在下单响应里出现一次
+2. 两种语义在下单响应上不可区分（同账号第二单都是 "2"）
+3. 前端消费点只有「拿 order_id 去支付」一种用法，不依赖 id 的绝对值
+
+**已做的处置**
+
+`vip_order` 表按主键自增（全局）+ `user_id` 列记录归属 + `idx_user_status` 索引——
+将来若证明是 per-account，改查询口径即可，不需要改表结构。

@@ -336,6 +336,27 @@ TradeController 的 `makeOrder` 零调用方（调用方全在 PayController）�
 
 ---
 
+### 4.7 后端踩坑（2026-10-18 v2.5，CreateVipOrder/batchPayOrder/begBuyList 切真实契约期间）
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| **CreateVipOrder 响应 `order_id=""`（DB 行却正确创建）** | ThinkPHP 8 的 `Model::save()` 内部靠 `getLastInsID()` 回写自增 id，但本环境模型 `initDb()` 走 `Db::connect(null)` 路径，`getLastInsID()` 返回 int(0)，`if ($key && $val)` 判假 → `setData('id')` 被跳过 → `$order['id']` 为 NULL。（已逐层排除：同一 facade 连接上直连 `PDO::lastInsertId`/`insertGetId`/`->model()` 绑定全部正常，分歧在连接实例） | `VipOrder::createForUser()` 改用 `Db::name('vip_order')->insertGetId($data)` 直插直返，`new self($data)` 构造返回。**本环境新建模型一律走 insertGetId，不要用 save() 后读 id** |
+| **契约用例回滚后，手工验证 order_id 从 "2" 开始对不上** | InnoDB 的 auto_increment 计数器**不随事务回滚**——`Db::rollback()` 撤行不撤计数 | 验证/演示前 `ALTER TABLE vip_order AUTO_INCREMENT = 1`（表空时）恢复「首单 id=1」，与原站样本一致 |
+| **begBuyList 错误响应漏了「排序方式错误」「藏品不存在」两层** | 只翻了样本，样本里恰好只有一层错误；而原站 `recon/.token` 仍有效，**直接 curl 原站**才探出完整四层链 | 复探原站：`collection_id=-1` 且无 sort → 报「排序方式错误」（证明存在性检查排最后，顺序不可调换）；`"abc"/"1.5"/"-1"/"99999"` → 「藏品不存在」。**原站可复探时，curl 比翻样本准**；写端点还能先制造数据再探读端点 |
+| **三个「订单信息」端点信封长得不一样，差点复用错** | orderList：`{total 开头, per_page:15}`；begBuyList：`{current_page 开头, per_page:0}`（空态）；begBuyOrderList：`{total 开头, per_page:15}`。msg 还都叫「订单信息」 | `Response::page()` **不可复用**：固定 total 开头键序 + `max(1,...)` 会把 begBuyList 空态的 per_page/last_page 的 0 静默钳成 1。每个端点独立信封方法，键序在契约用例里手工断言（`compareEnvelope()` 存在但 `check()` 从不调用） |
+| **Cases.php 加 3 个用例后 361 行破线** | 与 §4.6 同形态：加内容（这次是用例不是方法）+74 行即破 300 | 按域拆 4 组 + 注册中心：`cases/{User,Content,Market,Order}Cases.php` 各 ≤116 行，Cases.php 只留共享常量与调度（58 行）。**同一文件第二次触线，下次加用例前先估行数** |
+
+**⚠️ 本轮最重要的一条教训**：**端点名会骗人，信封不会**。
+`CreateVipOrder`/`batchPayOrder`/`begBuyList` 三个端点名字都像「订单列表」，
+实测却是三种信封、三种空态语义、三种错误链。判定依据只有原站响应本身——
+包括错误响应的层数与顺序（本轮全部靠复探原站取得，样本里没有）。
+
+**⚠️ 第二条**：本环境 ThinkPHP 8 的 `Model::save()` 不回写自增 id（见上表第一行），
+这是与官方文档行为不同的环境差异。凡「insert 后要拿 id」的模型方法，
+一律 `Db::name()->insertGetId()`，已写入 pitfalls.jsonl 防再踩。
+
+---
+
 ### 4.1 踩坑索引（联调相关）
 
 > 联调/断网校验的四件套见 §4.3。
@@ -447,9 +468,9 @@ node /root/.codebuddy/skills/sites/scripts/publish.js \
 
 ## 7. 当前工作区状态
 
-- git：工作区干净，HEAD = `6744fac`，已推送远端
+- git：工作区干净，已推送远端（v2.5 实质沉淀 = `ec10e60`，其后仅 §7 状态刷新）
 - 本地服务：未运行（需要时按 §6 启动）
-- 待办：无明确遗留（见 §5.3）
+- 待办：无明确遗留（未决项见 §5.3 与 `docs/decisions/OPEN-DECISIONS.md`：D-001/002/003/005/006/007 共 6 项 OPEN）
 
 ### 7.1 前后端联调环境（2026-10-17 打通）
 
