@@ -145,28 +145,16 @@ CREATE TABLE `blind_box` (
 
 -- ------------------------------------------------------------
 -- 用户
---⚠️ 注意：原站 user/getUserInfo 需登录，尚未抓到真实字段。
---    此处按前端 src/api/index.js 注释 + 交易链路必需字段先建骨架，
---    待拿到真实样本后修正（见 docs/api/OPEN-DECISIONS.md OPEN-04）
+-- 🔴 user 表不在此文件定义 —— canonical 定义在 04-trade-core.sql
+--    （105 列，严格对齐原站 user/getUserInfo 实测）。
+--    本文件原有一份 12 列骨架表（抓到真实样本前按前端注释搭的），
+--    与 04 重复定义构成「后应用者静默获胜」陷阱：
+--    若有人按 01→04 以外的顺序灌库（或单独补灌 01），user 会被
+--    降级回骨架表，seed.php 立刻报列不存在——与 collection 表
+--    在 03/04 重复定义的存量坑同族（2026-10-18 修 collection 时
+--    漏了这张，本次一并拆掉）。
+--    04 的 DROP TABLE IF EXISTS user + CREATE 是自包含的，
+--    删掉本定义不影响任何灌库顺序。
 -- ------------------------------------------------------------
-DROP TABLE IF EXISTS `user`;
-CREATE TABLE `user` (
-  `id`           int unsigned NOT NULL AUTO_INCREMENT,
-  `account`      varchar(64)  NOT NULL                COMMENT '登录账号（手机号或用户名）',
-  `password_hash` varchar(255) NOT NULL DEFAULT ''   COMMENT 'Argon2id 哈希，禁止明文',
-  `nickname`     varchar(64)  NOT NULL DEFAULT '',
-  `avatar`       varchar(255) NOT NULL DEFAULT ''     COMMENT 'OSS 相对路径',
-  `mobile`       varchar(20)  NOT NULL DEFAULT ''     COMMENT '手机号，登录账号之一',
-  `balance`      decimal(12,2) NOT NULL DEFAULT '0.00' COMMENT '余额，API 输出 string',
-  `integral`     int          NOT NULL DEFAULT '0'    COMMENT '积分',
-  `status`       tinyint(1)   NOT NULL DEFAULT '1'    COMMENT '1正常 0封禁',
-  `token_version` int         NOT NULL DEFAULT '1'    COMMENT '递增可强制下线旧 token',
-  `last_login_time` int unsigned NOT NULL DEFAULT '0',
-  `createtime`   int unsigned NOT NULL DEFAULT '0',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_account` (`account`),
-  UNIQUE KEY `uk_mobile`  (`mobile`),
-  KEY `idx_nickname` (`nickname`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户';
 
 SET FOREIGN_KEY_CHECKS = 1;

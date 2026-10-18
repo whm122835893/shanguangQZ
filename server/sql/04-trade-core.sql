@@ -54,8 +54,11 @@ CREATE TABLE `user` (
   `real_name_authentication`  tinyint(1)   NOT NULL DEFAULT 0,
   `real_name`                 varchar(64)  NOT NULL DEFAULT '',
   `id_card`                   varchar(64)  NOT NULL DEFAULT '' COMMENT '实名证件号（加密存储）',
-  `id_card_front`             varchar(255) NOT NULL DEFAULT '',
-  `id_card_back`              varchar(255) NOT NULL DEFAULT '',
+  -- 🔴 可空（契约依据）：getUserInfo 实测 id_card_front/id_card_back 为 null，
+  --    seed.php 刻意显式落 NULL 覆盖 DEFAULT ''（见其 $NESTED_TO_NULL）。
+  --    曾定义为 NOT NULL 导致 seed 直接 1048 报错——seed 与 DDL 不同步的存量坑。
+  `id_card_front`             varchar(255) DEFAULT NULL COMMENT '证件正面（实测 null）',
+  `id_card_back`              varchar(255) DEFAULT NULL COMMENT '证件反面（实测 null）',
   `real_name_time`            int unsigned NOT NULL DEFAULT 0,
   `first_buy_time`            int unsigned NOT NULL DEFAULT 0,
   `collection_total_price`    decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '持有藏品总价',
@@ -153,29 +156,15 @@ CREATE TABLE `user_token` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户登录令牌';
 
 -- ------------------------------------------------------------
--- 3. collection —— 藏品主表（已开盒的藏品定义）
---    实测：user_collection/antMycollection 内嵌 collection 实测 10 字段
---    注意：与 blind_box（未开盒商品）是两个不同实体，不可合表
+-- 3. collection —— 藏品主表
+--
+-- 🔴 本表不在本文件定义（曾重复定义导致 reprice_* 四列被静默丢弃）：
+--    03-content.sql 的版本才是 canonical（含 reprice_limit /
+--    reprice_min_limit / reprice_beg_max_limit / max_buy_price 四列，
+--    与 app/model/Collection.php 的 $schema 逐列对应）。
+--    按 01→08 顺序应用时，后定义的会 DROP 先定义的——同表只许
+--    有一个 CREATE。改动 collection 结构请改 03-content.sql。
 -- ------------------------------------------------------------
-DROP TABLE IF EXISTS `collection`;
-CREATE TABLE `collection` (
-  `id`                 int unsigned NOT NULL AUTO_INCREMENT,
-  `name`               varchar(128) NOT NULL DEFAULT '',
-  `main_image`         varchar(255) NOT NULL DEFAULT '',
-  `listimg`            varchar(255) NOT NULL DEFAULT '',
-  `collection_level`   varchar(32)  NOT NULL DEFAULT '' COMMENT '稀有度等级',
-  `total_num_show`     int          NOT NULL DEFAULT 0 COMMENT '前台展示总��量',
-  `total_num`          int unsigned NOT NULL DEFAULT 0 COMMENT '真实总发行量',
-  `is_img_diff`        tinyint(1)   NOT NULL DEFAULT 0 COMMENT '是否隐藏主图',
-  `unfreeze_collection_id` int unsigned NOT NULL DEFAULT 0,
-  `freeze_time`        int unsigned NOT NULL DEFAULT 0,
-  `series_id`          int unsigned NOT NULL DEFAULT 0,
-  `publisher_id`       int unsigned NOT NULL DEFAULT 0,
-  `createtime`         int unsigned NOT NULL DEFAULT 0,
-  `updatetime`         int unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  KEY `idx_series` (`series_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='藏品定义（已开盒）';
 
 -- ------------------------------------------------------------
 -- 4. user_collection —— 用户藏品持有表
@@ -301,23 +290,72 @@ CREATE TABLE `market_goods` (
 
 -- ------------------------------------------------------------
 -- 9. beg_buy_order —— 求购单
---    实测：begBuyList 必填 collection_id + sort(合法值 desc)，返回标准分页信封
+--
+-- 🔴🔴 2026-10-18 重写：旧版是「无样本猜测设计」（仅 8 列）。
+--     当日拿到原站真实非空样本（recon/raw5/，账号 16797 实测创建 →
+--     取消完整生命周期），本表按 27 字段实测响应抄录。
+--
+-- 实测依据（recon/raw5/）：
+--   POST /market/trade/createBegBuyOrder  {collection_id, price, number, pay_way}
+--     → {"code":1,"msg":"下单成功","data":{"order_sn":"...28位","order_id":"76","time":"300"}}
+--   POST /market/trade/begBuyOrderList    → 27 字段/行（下方列注释逐条对应）
+--   POST /market/trade/begBuyOrderInfo    → 同款 27 字段（无 sale_number）
+--   POST /market/trade/cancelBegBuyOrder  {order_id} → "取消成功"
+--
+-- 🔴 端点名陷阱（第三次踩中，详见 pitfalls）：
+--     原站前端 api/index.js 的 submitBegBuy/submitEntrust 指向
+--     /market/trade/begBuy、/market/trade/entrust —— 这两个路由
+--     原站根本不存在（404）。真实写端点是 createBegBuyOrder / sell。
+--     原站「发起求购/发起委托」两个页面是未提交的空壳（编译包逆向证实）。
+--
+-- 🔴 冗余列决策：goods_name / goods_image / series_id / series_name
+--     按创建时快照落库，不 join collection。理由：订单展示字段必须
+--     定格在成交那一刻（藏品改名不能改写历史订单），且本地 series
+--     表无种子，join 会静默丢 series_name。
+--
+-- 🔴 platform_service_rate=6.00 的来源不可见：collectionDetail 的
+--     floor_price.pay_platform_service_rate 是 "0.05"（寄售费率 5%），
+--     求购单实测 6% —— 两个不同费率，源配置无端点暴露，按实测值固化。
+--
+-- 🔴 status 语义来自 OrderEnum（原站 order-list.js 逆向实证）：
+--     1待付款(300秒倒计时) 2求购中(支付后) 3已成交 4已取消。
+--     实测只出现过 1（创建后）和 4（手动取消/自动过期）。
+--     canceltime：自动过期落值，手动取消留 null（实测两种都见过）。
 -- ------------------------------------------------------------
 DROP TABLE IF EXISTS `beg_buy_order`;
 CREATE TABLE `beg_buy_order` (
-  `id`             int unsigned NOT NULL AUTO_INCREMENT,
-  `user_id`        int unsigned NOT NULL COMMENT '求购人',
-  `collection_id`  int unsigned NOT NULL,
-  `price`          decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '求购价',
-  `num`            int          NOT NULL DEFAULT 1 COMMENT '求购数量',
-  `filled_num`     int          NOT NULL DEFAULT 0,
-  `status`         tinyint(1)   NOT NULL DEFAULT 1 COMMENT '1求购中 2已完成 3已取消',
-  `createtime`     int unsigned NOT NULL DEFAULT 0,
-  `updatetime`     int unsigned NOT NULL DEFAULT 0,
+  `id`                        int unsigned NOT NULL AUTO_INCREMENT,
+  `order_sn`                  varchar(64)  NOT NULL COMMENT '订单号（实测 YmdHis 14位 + 随机14位，共28位）',
+  `user_id`                   int unsigned NOT NULL COMMENT '求购人 user.id',
+  `goods_id`                  int unsigned NOT NULL COMMENT '求购藏品ID（响应字段名是 goods_id，值 = collection_id）',
+  `order_status`              tinyint(1)   NOT NULL DEFAULT 1 COMMENT '1待付款 2求购中 3已成交 4已取消（OrderEnum 实证）',
+  `number`                    int          NOT NULL DEFAULT 1 COMMENT '求购数量（响应是 int，不是 string）',
+  `price`                     decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '求购单价（响应 string "20000.00"）',
+  `total_price`               decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '总价 = price × number',
+  `platform_service_rate`     decimal(6,2)  NOT NULL DEFAULT 6.00 COMMENT '平台服务费率%（实测 "6.00"，注意是百分数不是小数）',
+  `platform_service_price`    decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '平台服务费 = total_price × rate%',
+  `single_platform_service_price` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '单件服务费（number=1 时与上行相同，无法区分口径）',
+  `goods_name`                varchar(255) NOT NULL DEFAULT '' COMMENT '藏品名快照',
+  `goods_image`               varchar(255) NOT NULL DEFAULT '' COMMENT '藏品图快照（= collection.listimg）',
+  `series_id`                 int unsigned NOT NULL DEFAULT 0 COMMENT '系列ID快照',
+  `series_name`               varchar(128) NOT NULL DEFAULT '' COMMENT '系列名快照',
+  `pay_scene`                 varchar(32)  NOT NULL DEFAULT '' COMMENT '实测空串',
+  `pay_way`                   varchar(32)  NOT NULL DEFAULT '' COMMENT 'huifu（实测唯一可用值；yibao 报未开通）',
+  `pay_time`                  int unsigned DEFAULT NULL COMMENT '实测 null',
+  `pay_type`                  varchar(32)  DEFAULT NULL COMMENT '实测 null',
+  `is_refund`                 tinyint(1)   NOT NULL DEFAULT 0 COMMENT '实测 0',
+  `real_trans_amt`            decimal(12,2) DEFAULT NULL COMMENT '实付金额（实测 null）',
+  `huifu_pay_type`            varchar(32)  DEFAULT NULL COMMENT '实测 null',
+  `canceltime`                int unsigned DEFAULT NULL COMMENT '自动过期落值；手动取消为 null',
+  `order_type`                tinyint(1)   NOT NULL DEFAULT 11 COMMENT '11=求购/批次（OrderEnum 实证，响应 int）',
+  `sale_number`               int          NOT NULL DEFAULT 0 COMMENT '已成交数量（实测 0；OrderInfo 响应无此字段）',
+  `createtime`                int unsigned NOT NULL DEFAULT 0,
+  `updatetime`                int unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
-  KEY `idx_collection_status` (`collection_id`,`status`),
-  KEY `idx_user` (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='求购单';
+  UNIQUE KEY `uk_order_sn` (`order_sn`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_goods_status` (`goods_id`,`order_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='求购单（27字段实测抄录，冗余展示列快照）';
 
 -- ------------------------------------------------------------
 -- 10. consignment —— 寄售
