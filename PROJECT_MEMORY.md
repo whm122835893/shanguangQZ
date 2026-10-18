@@ -523,7 +523,9 @@ node /root/.codebuddy/skills/sites/scripts/publish.js \
 
 ## 7. 当前工作区状态
 
-- git：工作区有未提交文档更新（v2.6 求购域切契约的决策沉淀 + §4.8 踩坑）
+- git：全部已提交并推送远端 main（文档 `25b61ec` 本地 / SQL `4ff662b` 本地 /
+  后端 v2.6 求购代码 `b020090`；远端 main = `1b37a97`，553 blob，
+  verify-remote-sync 103/103 SHA 一致、0 分叉、0 影子文件）
 - 本地服务：未运行（需要时按 §6 启动）
 - 待办：无明确遗留（未决项见 §5.3 与 `docs/decisions/OPEN-DECISIONS.md`：D-001/002/003/005/006/007/008/009 共 8 项 OPEN）
 
