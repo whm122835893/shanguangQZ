@@ -110,10 +110,24 @@ $userRow['buy_count']       = (int) ($statistics['buy_count'] ?? 0);
 $userRow['sale_count']      = (int) ($statistics['sale_count'] ?? 0);
 $userRow['join_day']        = (int) ($statistics['join_day'] ?? 0);
 
-// 🔐 敏感字段：实测样本含真实手机号，入库前脱敏
-//    （样本本身在 .gitignore 内不入库，但 DB 也不该存明文真实号码）
-$userRow['username'] = '175****1293';
-$userRow['mobile']   = '175****1293';
+// 敏感字段：原样取自实测样本，不做任何二次脱敏
+//
+// 🔴 契约依据（原站 getUserInfo 实测）：
+//     "username": "17587881293"   <- 明文下发
+//     "mobile":   "17587881293"   <- 明文下发
+//     "id_card":  "520******838"   <- 原站已脱敏，原样保留
+//     "real_name":"王*绵"          <- 原站已脱敏，原样保留
+//
+//⚠️ 本项目决策（2026-10-18）：与原站一致，手机号明文存储与下发。
+//   之前曾在 seed 阶段打成 "175****1293"，导致 getUserInfo 出参与
+//   原站契约不一致，已由 tools/contract/run.php 抓出并修正。
+//
+//   如未来要改为「入库即加密」，需同步改造：
+//     - login 的 WHERE mobile 查询（改为哈希列比对）
+//     - User::$schema 的 mobile 类型
+//     - UserFormatter::userInfo() 的解密出参
+$userRow['username'] = (string) ($userSample['username'] ?? '');
+$userRow['mobile']   = (string) ($userSample['mobile'] ?? '');
 // id_card / real_name 原站已脱敏（"520******838" / "王*绵"），原样保留
 
 // 只保留 DB 真实存在的列，防止拼错列名直接 500

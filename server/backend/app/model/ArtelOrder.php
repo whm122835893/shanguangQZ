@@ -43,9 +43,13 @@ use think\Model;
  *    ⚠️ 实测样本只有单个 ID，多 ID 分隔符未实测确认，explode(',') 是合理推断，
  *    抓到多 ID 样本后必须复核分隔符。
  *
- * ⚠️ 陷阱 3：collection_code 是空数组，不是字符串也不是 null
- *    实测 "collection_code": []。DB 无对应列（实测样本全为空，无从推断结构），
- *    出参时固定下发 []。⚠️ 一旦原站开始下发真实内容，此处必须重新建模。
+ * ⚠️ 陷阱 3：collection_code 是数组，且实测双形态
+ *    id=18554 -> []              （空数组）
+ *    id=14642 -> ["1926/100000"] （字符串数组，元素形如 "编号/总量"）
+ *    ⚠️ 早期只看首条样本曾误判为「恒空」，建表时漏了该列，
+ *       契约测试（tools/contract/run.php）在全量比对时抓到该回归。
+ *    DB 存原样字符串，出参拆分逻辑见 TradeFormatter::collectionCode()。
+ *    教训：样本有 N 条就必须全看，只看首条得出的结论不可信。
  *
  * ⚠️ 补充：goods_type 是 int（实测 2），但 blind_box.goods_type 是 string（实测 "2"）。
  *    同名不同表、不同类型 —— 这正是「禁止按字段名跨表推断类型」的活案例。
@@ -57,6 +61,7 @@ use think\Model;
  * @property string $num              数量，实测 "1"（string）
  * @property string $total_price      实测 "100.00"
  * @property string $uc_ids           可为 null / "121926"
+ * @property string $collection_code  实测 "" 或 "1926/100000"，出参转数组
  * @property int    $goods_type       int（注意与 blind_box.goods_type 的 string 相反）
  * @property int    $createtime
  */
@@ -95,6 +100,7 @@ class ArtelOrder extends Model
         'crystal_type'     => 'string',
         'crystal_number'   => 'string',   // ⚠️ 实测 "0" 是 string
         'uc_ids'           => 'string',
+        'collection_code'  => 'string',   // ⚠️ 实测双形态 "" / "1926/100000"
         'pay_channel'      => 'string',
         'pay_time'         => 'int',
         'createtime'       => 'int',

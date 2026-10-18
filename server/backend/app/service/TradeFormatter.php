@@ -44,13 +44,39 @@ final class TradeFormatter
     }
 
     /**
+     * collection_code 双形态还原
+     *
+     * 原站实测两种形态，都必须保留，不能一律补 []：
+     *   null / ''            -> []
+     *   "1926/100000"        -> ["1926/100000"]
+     *   多值（逗号分隔）     -> ["a/1", "b/2"]
+     *
+     * 拆分规则按原站形态：整个字符串作为数组一个元素，
+     * 不再按 "/" 二次切分——切了会得到 ["1926","100000"]，与契约不符。
+     */
+    private static function collectionCode($raw): array
+    {
+        if ($raw === null || $raw === '' || $raw === []) {
+            return [];
+        }
+        $parts = array_values(array_filter(
+            array_map('trim', explode(',', (string) $raw)),
+            static fn($v) => $v !== ''
+        ));
+        return $parts;
+    }
+
+    /**
      * 订单行 —— 原站 order/order/orderList 实测 18 字段
      *
      * 🔴 最容易写错的一组：同一条记录里 int 与 string 混用
      *    实测："order_status": 3 (int) / "order_type": "2" (str) / "num": "1" (str)
      *
-     * ⚠️ collection_code 实测是空数组 []，DB 无对应列，出参固定补 []
-     *    一旦原站开始下发真实内容，此处必须重新建模。
+     * ⚠️ collection_code 实测**双形态**，不是恒空：
+     *    id=18554 -> []          （无编号信息）
+     *    id=14642 -> ["1926/100000"]（"编号/总量" 字符串数组）
+     *    早期只看了首条样本误判为恒空，契约测试已抓到该回归。
+     *    DB 用 collection_code 列存 "1926/100000" 原样，出参按 "/" 拆数组。
      *
      * @param \think\Model|array $row artel_order 行
      * @return array
@@ -82,8 +108,8 @@ final class TradeFormatter
             'uc_ids'           => ($s['uc_ids'] === null || $s['uc_ids'] === '')
                                     ? null
                                     : explode(',', (string) $s['uc_ids']),
-            // ⚠️ 实测恒为空数组
-            'collection_code'  => [],
+            // ⚠️ 双形态：[] 或 ["1926/100000"]
+            'collection_code'  => self::collectionCode($s['collection_code'] ?? null),
             'createtime'       => (int) $s['createtime'],
             'updatetime'       => (int) $s['updatetime'],
         ];
