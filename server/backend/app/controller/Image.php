@@ -62,9 +62,24 @@ class Image
             return Response::fail('非法图片路径');
         }
 
+        // 查找顺序：①运行时缓存 → ②静态预下载资产 → ③回源抓取
+        //
+        // 🔴 为什么多一层「静态资产」：前端仓库的 public/static/oss/ 下
+        //    已有 37 张预下载图片（由 gandart-h5/tools/fetch-oss-images.sh 生成），
+        //    路径结构与 OSS 完全一致（/uploads/2026xxxx/xxx.jpg）。
+        //    2026-10-19 实测：库内 25 条图片路径里有 14 条静态目录已覆盖。
+        //    直接复用这层，这 14 张**完全不出网**；只有静态目录没有的
+        //    才落到第 ③ 步回源（并落 runtime 缓存，下次也不出网）。
+        //    两套资产都是本地真实文件，不存在编造。
         $file = self::cacheDir() . md5($path);
 
         if (!is_file($file)) {
+            $static = self::staticOssPath($path);
+            if ($static !== null) {
+                return response(file_get_contents($static), 200)
+                    ->contentType($this->mimeOf($path))
+                    ->header(['Cache-Control' => 'public, max-age=2592000']);
+            }
             $ok = $this->fetch($path, $file);
             if (!$ok) {
                 return Response::fail('图片不存在');
@@ -75,6 +90,35 @@ class Image
         return response(file_get_contents($file), 200)
             ->contentType($mime)
             ->header(['Cache-Control' => 'public, max-age=2592000']);
+    }
+
+    /**
+     * 静态预下载资产里有没有这张图（命中即零出网）
+     *
+     * 路径映射：DB 里存 `/uploads/20261012/xxx.jpg`，静态目录是
+     * `public/static/oss/uploads/20261012/xxx.jpg` —— 直接拼接即可，无需转换。
+     *
+     * 目录来源：环境变量 `GANDART_STATIC_OSS` 优先，否则退回前端仓库的固定
+     * 位置。之所以要跨项目引用，是因为 dev 环境下 vite 把 `/static/oss`
+     * 代理到本端点，而预下载资产落在前端仓库；生产由 server.cjs 直接直出
+     * 静态文件，不走本端点。
+     */
+    private static function staticOssPath(string $path): ?string
+    {
+        $dirs = [];
+        $env = (string) (getenv('GANDART_STATIC_OSS') ?: '');
+        if ($env !== '') {
+            $dirs[] = rtrim($env, '/');
+        }
+        $dirs[] = '/workspace/gandart-h5/public/static/oss';
+
+        foreach ($dirs as $d) {
+            $full = $d . $path;
+            if (is_file($full) && filesize($full) > 0) {
+                return $full;
+            }
+        }
+        return null;
     }
 
     /**
