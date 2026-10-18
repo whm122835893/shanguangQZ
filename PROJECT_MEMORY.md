@@ -357,6 +357,61 @@ TradeController 的 `makeOrder` 零调用方（调用方全在 PayController）�
 
 ---
 
+### 4.8 求购域切真实契约（2026-10-18 v2.6，用户授权原站制造数据）
+
+> 授权原文：「可以，准你在原站制造数据」。账号 16797 在原站真实创建两笔求购单
+> （藏品 162，单价 20000.00，order_id 76/77），76 自动过期、77 手动取消。
+> **只做不涉钱的写操作**（求购单 money=0，无支付通道可触发）。
+
+**样本资产（raw5/raw6/raw7 共 22 个）**
+
+| 批次 | 内容 |
+|---|---|
+| `recon/raw5/`（8 个） | 建单成功 ×2、列表待付款/终态、详情 ×2、取消成功 |
+| `recon/raw6/`（10 个） | begBuyList 矩阵：5 藏品 × 旧/新分支 + lr10/page2/asc/sortprice 变体 |
+| `recon/raw7/`（4 个） | 前端死端点名空参复探：begBuy/entrust/entrustOrderList 均 404，createBegBuyOrder 存在 |
+
+**已锁定的求购契约**
+
+| 契约点 | 实测结论 |
+|---|---|
+| 字段数 | 列表行 **28** 字段（含 sale_number）、详情 **27** 字段 |
+| 键序 | 列表行尾部 `..., order_type, sale_number, surplus_time_text`——**sale_number 不在行尾** |
+| `surplus_time_text` | **纯时间数学** `max(0, 300-(now-createtime))`，与 status 无关。实证：77 手动取消（status=4）后仍 186→196 递减；76 显示 0 是时间过窗非状态置零 |
+| 建单参数 | `collection_id` + `price` + `number` + `pay_way`（实测合法值 `huifu`） |
+| 校验链 9 步 | 藏品ID不能为空→数量不能为空→支付方式不能为空→藏品不存在→请输入挂单价格→该藏品不可求购→地板价区间（tips 原文）→限制最大求购金额（取 reprice_beg_max_limit 取整）→下单成功。**多错并发的上报顺序有实证**（5 例），调换实现顺序会静默改文案 |
+| 费率 | `platform_service_rate="6.00"`，`order_type=11`，`sale_number=0` |
+| 建单响应 | `{order_sn, order_id, time}`，`time="300"`（付款窗口秒），order_id 是 **string**，order_sn 28 位 |
+| 取消语义 | 成功置 status=4；**手动取消 canceltime 留 null**，自动过期才落值（76/77 双样本实证）；重复取消报「订单不存在」 |
+| 归属校验 | IDOR 防护实证：第二个用户查/取消 16797 的单均「订单不存在」（最小披露） |
+| begBuyList 信封 | **双分支**：可求购藏品（reprice_beg_max_limit>0）→ `{total 开头, per_page:50}`；不可求购 → `{current_page 开头, per_page:0}`。判别机制系归纳，登记 D-009 |
+
+**本轮踩坑（都在 §4.8 首次出现）**
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| **格式化器 sale_number 放错位置** | 凭「计数类字段在行尾」的直觉排键序 | 实测在 order_type 之后、surplus_time_text 之前。**键序只能逐位抄样本** |
+| **surplusSeconds 加了 status 检查** | 模型里想当然「非待付款不该倒计时」 | 77 号单取消后仍递减，删状态检查改纯时间数学 |
+| **raw4 两个 begBuyList 样本一个缺 collection_id** | 误以为两个都是成功样本 | 复探 + 矩阵探测破译：缺参的是错误样本，`_161` 是旧分支成功样本 |
+| **01-schema.sql 与 04-trade-core.sql 重复定义 user 表** | 01 是抓样本前的 12 列猜测骨架，04 是 105 列 canonical 实测表；「后应用者静默获胜」 | 01 删 DDL 改指针注释（同 collection 03/04 重复定义的存量坑族） |
+| **seed 漏灌 collection_code，14642 比对红** | `$ORDER_MAP` 只看了首条样本（18554 的 collection_code=[]），而 14642 实测 `["1926/100000"]` | **样本必须逐条看**；数组形态转字符串入库 |
+| **前端三个求购/委托端点名 404** | `submitBegBuy`/`submitEntrust`/`getEntrustOrderList` 打的名字原站不存在（实为 createBegBuyOrder 等） | Mock 保留 `[MOCK]` 路由兜底 + 路由注释标注；登记 D-008 |
+
+**⚠️ 本轮最重要的一条教训**：**端点名第三次骗人**。
+`fastCreateOrder`→`fastOrderNew`（§4 坑表）、`begBuy`/`entrust`→404、
+`begBuyList`→同端点双信封。判定端点契约的唯一依据是**原站响应本身**——
+复探（curl 原站）比翻样本准，样本是过去某时刻的切片，错误链层数/信封形状
+不一定在样本里。原站 token 有效时，每个端点切契约前先 curl 一遍。
+
+**⚠️ 第二条**：**同一端点可以按数据分流到两种信封**（begBuyList 双分支）。
+用「一个端点一种信封」的直觉写代码，就会漏掉一半分支。判别列即使是从
+数据点归纳的，也要显式传参（`$begBuyable` 形参）——将来换判别列只改一处。
+
+**⚠️ 第三条**：事务回滚**不撤 auto_increment 计数**（78→79 实证）。
+契约用例按 id 定位种子行不受影响；手工验证时下一个单号从 79 起不是 bug。
+
+---
+
 ### 4.1 踩坑索引（联调相关）
 
 > 联调/断网校验的四件套见 §4.3。
@@ -468,9 +523,9 @@ node /root/.codebuddy/skills/sites/scripts/publish.js \
 
 ## 7. 当前工作区状态
 
-- git：工作区干净，已推送远端（v2.5 实质沉淀 = `ec10e60`，其后仅 §7 状态刷新）
+- git：工作区有未提交文档更新（v2.6 求购域切契约的决策沉淀 + §4.8 踩坑）
 - 本地服务：未运行（需要时按 §6 启动）
-- 待办：无明确遗留（未决项见 §5.3 与 `docs/decisions/OPEN-DECISIONS.md`：D-001/002/003/005/006/007 共 6 项 OPEN）
+- 待办：无明确遗留（未决项见 §5.3 与 `docs/decisions/OPEN-DECISIONS.md`：D-001/002/003/005/006/007/008/009 共 8 项 OPEN）
 
 ### 7.1 前后端联调环境（2026-10-17 打通）
 

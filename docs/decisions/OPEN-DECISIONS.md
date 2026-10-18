@@ -4,7 +4,7 @@
 > 每次 Phase 开始时把未决项复现到工作上下文最前面，逐条判断能否关闭。
 > 已关闭的项可升格为 ADR。
 
-**汇总：6 未决 + 1 已决**
+**汇总：7 未决 + 1 已决**
 
 ---
 
@@ -45,11 +45,11 @@
 | Date | 2026-10-18 |
 | Source | Phase 1 · 样本资产盘点（240 个样本） |
 | slug | `waiting-on-external-condition` |
-| Related Constraints | `market/trade/begBuy` 等写端点；`getMarketGoodsListByGoodsId` 样本为空数组 |
-| Current Leaning | 挂起，只做读端点（`collectionDetail` / `tradingInformation`） |
-| Blocked By | 测试账号在原站**无挂单数据**，无法触发写端点成功路径 |
-| Resolves When | 账号在原站有在售挂单，或用第二个账号挂单后再抓 |
-| Status | **OPEN** |
+| Related Constraints | ~~`market/trade/begBuy` 等写端点~~；**求购写端点已解除**（见 2026-10-18 更新）；仍无样本：`market/trade/sell`、`market/trade/entrust`、`market/Prepayment/createOrder` |
+| Current Leaning | 求购域已切真实契约（`createBegBuyOrder`/`cancelBegBuyOrder`）；其余写端点继续挂起，只做读端点 |
+| Blocked By | 测试账号无挂单/寄售数据，无法触发 `sell`/`entrust` 成功路径 |
+| Resolves When | 账号有在售挂单后抓 `sell` 样本 |
+| Status | **OPEN**（求购子域已关闭，见下） |
 
 **背景**
 
@@ -63,6 +63,23 @@ D 类（服务异常）15 / E 类（404 已下线）32 / F 类（401 需重抓�
 
 - 20 个 401 样本可重抓（原站 token 在 `recon/.token`，仍有效）
 - 读端点 `market/trade/collectionDetail`、`market/Prepayment/collectionDetail` 有A 类样本，可立即切
+
+**2026-10-18 更新：求购写端点已拿到成功样本（用户授权原站制造数据）**
+
+经用户明确授权（「可以，准你在原站制造数据」），用测试账号 16797 在原站真实创建
+两笔求购单（藏品 162，单价 20000.00，`order_id` 76/77，`order_sn` 28 位），
+76 自动过期、77 手动取消，全链路样本落在 `recon/raw5/`（8 个）：
+
+| 样本 | 内容 |
+|---|---|
+| `createBegBuyOrder.json` / `_2.json` | 建单成功：`{order_sn, order_id, time:"300"}` |
+| `begBuyOrderList.json` / `_after_cancel.json` | 两笔的待付款态 / 终态（28 字段行） |
+| `begBuyOrderInfo_76.json` / `_77_cancelled.json` | 详情 27 字段（76 抓于待付款时刻，不可比终态） |
+| `cancelBegBuyOrder.json` | 取消成功 |
+
+求购写端点（`createBegBuyOrder` / `cancelBegBuyOrder`）由此进入契约用例
+（`tools/contract/cases/BegBuyCases.php`，A 组样本比对 + B 组行为断言共 30+ 例）。
+**`sell` / `entrust` / `Prepayment/createOrder` 仍无样本，D-002 主体保持 OPEN。**
 
 **Resolution**（待填）
 ---
@@ -181,11 +198,11 @@ PHP 方法解析在运行期。`php -l` 只查语法；lint 不查跨类方法�
 | Date | 2026-10-18 |
 | Source | Phase 3 · begBuyList + batchPayOrder 切契约 |
 | slug | `waiting-on-external-condition` |
-| Related Constraints | begBuyList 样本 `recon/raw4/market_trade_begBuyList_161.json` 是 B 类空态；batchPayOrder 样本同为 B 类；求购写端点 `begBuy` 无成功样本（承 D-002） |
-| Current Leaning | 空态契约已全锁（begBuyList 5 键键序 + per_page/last_page=0；batchPayOrder 2 字段 int 0）；`data` 行结构在拿到非空样本前恒 `[]` |
-| Blocked By | 账号需在原站有求购单 / batchBuy 待付批量，才能触发非空路径 |
+| Related Constraints | ~~begBuyList 样本 `recon/raw4/market_trade_begBuyList_161.json` 是 B 类空态~~；**空态契约已升格为双分支实证**（见 2026-10-18 更新）；batchPayOrder 样本同为 B 类；~~求购写端点 `begBuy` 无成功样本（承 D-002）~~ 求购写端点已有成功样本 |
+| Current Leaning | begBuyList **双分支空态信封已全锁**（旧分支/新分支各自键序 + per_page 值）；`data` 行结构在拿到非空样本前恒 `[]` |
+| Blocked By | 账号需在原站有**待付款**求购单（money>0），才能触发 begBuyList 非空路径 |
 | Resolves When | 抓到 begBuyList total>0 或 batchPayOrder data 非空的样本 |
-| Status | **OPEN** |
+| Status | **OPEN**（begBuyList 空态部分已关闭，见下） |
 
 **背景**
 
@@ -205,6 +222,21 @@ PHP 方法解析在运行期。`php -l` 只查语法；lint 不查跨类方法�
 本地 `beg_buy_order` 表 0 行（无种子来源，D-002），`total` 恒 0 与样本一致，
 且是 `MarketStats::begBuyOrderCount()` 真实查询结果。契约用例注释已标注：
 将来灌入求购数据本用例会红——那是预期信号，非空契约需要新样本才能确立。
+
+**2026-10-18 更新：begBuyList 双分支信封实证（raw6 矩阵 10 样本）**
+
+复探原站发现 begBuyList 的「per_page=0」不是固定空态值，而是**按藏品求购性分流**：
+
+| 分支 | 判别 | 信封 | 实证样本 |
+|---|---|---|---|
+| 旧分支 | 藏品 `reprice_beg_max_limit ≤ 0`（不可求购，如 161/1/8/124/165） | `{current_page 开头, data, last_page:0, per_page:0, total}` | `begBuyList_161/_1/_8/_124/_165`（5 个） |
+| 新分支 | 藏品 `reprice_beg_max_limit > 0`（可求购，162） | `{total 开头, per_page:50, current_page, last_page, data}` | `begBuyList_162_*`（5 个，含 lr10/page2/asc 变体） |
+
+本地实现改为双分支（`MarketFormatter::begBuyList($total, $page, $size, $begBuyable)`），
+判别 flag 与 `createBegBuyOrder` 第 6 步「该藏品不可求购」校验同源。
+**判别机制本身是从 6 个数据点归纳的，原站代码不可见——残余不确定性登记为 D-009。**
+
+非空态（total>0）仍无样本：money=0 无法支付，D-006 主体保持 OPEN。
 
 ---
 
@@ -239,3 +271,87 @@ PHP 方法解析在运行期。`php -l` 只查语法；lint 不查跨类方法�
 
 `vip_order` 表按主键自增（全局）+ `user_id` 列记录归属 + `idx_user_status` 索引——
 将来若证明是 per-account，改查询口径即可，不需要改表结构。
+
+---
+
+## D-008 前端三个「求购/委托」端点名是死代码（原站 404）
+
+| 项 | 内容 |
+|----|------|
+| Date | 2026-10-18 |
+| Source | Phase 3 · 求购域切契约（raw7 空参复探实证） |
+| slug | `existing-design-boundary` |
+| Related Constraints | 前端 `src/api/index.js` 的 `submitBegBuy`/`submitEntrust`/`getEntrustOrderList` 三个导出；Mock 侧 `route/sub/route_api.php` 保留 `[MOCK]` 路由兜底 |
+| Current Leaning | 前端**暂不改**：三个函数无页面调用方（空壳导出），改不改都不影响运行；真实端点名 `createBegBuyOrder`/`cancelBegBuyOrder` 已在 Mock 全实现 |
+| Blocked By | 无（纯前端决策，等前端仓库下一轮清理时顺手处理） |
+| Resolves When | 前端决定清理死导出时，把三个函数改指真实端点名或直接删 |
+| Status | **OPEN** |
+
+**背景**
+
+`src/api/index.js` 里有三个求购/委托相关导出：
+
+| 前端函数 | 打的端点 | 原站实测（raw7，2026-10-18） |
+|---|---|---|
+| `submitBegBuy` | `/market/trade/begBuy` | **404** `{"code":404,"msg":"An error occurred"}` |
+| `submitEntrust` | `/market/trade/entrust` | **404** 同上 |
+| `getEntrustOrderList` | `/market/trade/entrustOrderList` | **404** 同上 |
+
+对照：`/market/trade/createBegBuyOrder` 空参返回 `code=0「藏品ID不能为空」`——
+端点存在，只是名字不叫 `begBuy`。**这是「端点名骗人」第三次踩中**
+（前两次：`fastCreateOrder`→实为 `fastOrderNew`；`begBuyList` 双信封）。
+
+**已做的处置**
+
+1. 证据落盘 `recon/raw7/deadname_*.json`（4 个，空参探测，不触发任何写入）
+2. Mock 路由注释标注死代码事实（`route/sub/route_api.php:78`）
+3. 委托域两个 `[MOCK]` 路由（entrust/entrustOrderList）**保留**——
+   原站 404 但前端空壳还在，Mock 返回假数据至少不会让前端白屏；
+   真正的修复在前端仓库，不在 Mock
+
+**为什么不阻塞**
+
+三个导出**无任何页面调用**（grep 全前端源码仅 api/index.js 自身定义处）。
+是死代码，不是功能缺陷。
+
+---
+
+## D-009 begBuyList 双分支判别机制系归纳，非实证
+
+| 项 | 内容 |
+|----|------|
+| Date | 2026-10-18 |
+| Source | Phase 3 · begBuyList 双分支契约（raw6 矩阵 10 样本） |
+| slug | `design-decision-to-evaluate` |
+| Related Constraints | 原站代码不可见；判别规则只能从响应数据点反推 |
+| Current Leaning | `reprice_beg_max_limit > 0` 作为「可求购」判别列，与 `createBegBuyOrder` 第 6 步校验同源（该步有文案实证：「该藏品不可求购」） |
+| Blocked By | 需要看到原站 begBuyList 的查询源码，或找到判别列不同的藏品样本 |
+| Resolves When | 抓到一票「reprice_beg_max_limit>0 但走旧分支」或「≤0 但走新分支」的反例样本 |
+| Status | **OPEN** |
+
+**背景**
+
+raw6 矩阵 10 个样本的实证格局：
+
+| collection_id | reprice_beg_max_limit | 走的分支 |
+|---|---|---|
+| 162 | > 0 | 新分支（total 开头, per_page:50） |
+| 161 / 1 / 8 / 124 / 165 | ≤ 0 | 旧分支（current_page 开头, per_page:0） |
+
+6 个数据点全部一致，但「用哪一列判别」是从数据归纳的——完全可能存在
+另一列（如 `is_beg`、`beg_status`）与原站真实判别列**相关但不等价**的情况。
+本地 6 个藏品里两列恰好共线，无法区分。
+
+**为什么暂时不影响交付**
+
+1. 判别列同时驱动 `createBegBuyOrder` 的「该藏品不可求购」校验——
+   该校验有**文案实证**（原站 code=0 响应），说明「可求购性」这个概念真实存在
+2. 即使判别列猜错，受影响的只有 begBuyList 的**信封形状**（键序 + per_page 值），
+   不影响任何行数据与建单/取消逻辑
+3. 契约用例对两个分支各自断言键序——判别列真被推翻时，用例会红，信号明确
+
+**已做的处置**
+
+本地实现把判别显式化为 `MarketFormatter::begBuyList(..., bool $begBuyable)` 形参，
+Controller 计算 flag 后传入——将来换判别列只改一处（`MarketController::begBuyList()`
+第 4 层），格式化器不动。

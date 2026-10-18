@@ -248,14 +248,14 @@
 | `/market/market/marketGoodsDetail` | 市场商品详情（含在售/求购列表） | `` |
 | `/market/market/marketList` | 市场行情列表 | `` |
 | `/market/market/marketrebang` | 市场热榜 | `` |
-| `/market/trade/begBuyList` | 求购单列表 | `` |
-| `/market/trade/begBuyOrderInfo` | 求购单详情 | `` |
-| `/market/trade/begBuyOrderList` | 我的求购单 | `` |
-| `/market/trade/cancelBegBuyOrder` | 取消求购单 | `` |
-| `/market/trade/collectionDetail` | 交易藏品详情 | `` |
-| `/market/trade/createBegBuyOrder` | 创建求购单 | `` |
-| `/market/trade/getSellCollectionInfo` | 出售藏品信息（下单前校验） | `` |
-| `/market/trade/sell` | 挂单出售 | `` |
+| `/market/trade/begBuyList` | 求购单列表 | `collection_id` + `sort=desc`（唯一合法值）；**双分支信封**：可求购藏品 `{total 开头, per_page:50}` / 不可求购 `{current_page 开头, per_page:0}` |
+| `/market/trade/begBuyOrderInfo` | 求购单详情 | `order_id`（27 字段） |
+| `/market/trade/begBuyOrderList` | 我的求购单 | `page`/`size`（默认 per_page=15；28 字段行） |
+| `/market/trade/cancelBegBuyOrder` | 取消求购单 | `order_id`（手动取消 canceltime 留 null） |
+| `/market/trade/collectionDetail` | 交易藏品详情 | |
+| `/market/trade/createBegBuyOrder` | 创建求购单 | `collection_id` + `price` + `number` + `pay_way=huifu`；9 步校验链；费率 6%；响应 `{order_sn, order_id, time:"300"}` |
+| `/market/trade/getSellCollectionInfo` | 出售藏品信息（下单前校验） | 原站仅限流样本（raw2「操作过于频繁」），无成功样本 |
+| `/market/trade/sell` | 挂单出售 | 原站仅限流样本（raw2），前端无调用方（前端转售走 `/user_collection/user_collection/show_resale_money`，参数 `price` + `user_collection_id`） |
 | `/market/trade/tradingInformation` | 委托挂单列表 | `` |
 
 ### 3.9 `order` 模块（31 个）
