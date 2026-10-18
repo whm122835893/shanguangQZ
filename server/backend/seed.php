@@ -25,6 +25,7 @@ $app = new think\App();
 $app->initialize();
 
 use app\model\Collection;
+use app\model\ConsignmentPriceRule;
 use app\model\ArtelOrder;
 use app\model\Message;
 use app\model\User;
@@ -80,7 +81,7 @@ echo "  用户 1 / 订单 " . count($orderSample['data']) . " / 藏品 "
 if ($fresh) {
     echo "\n=== --fresh：清空目标表 ===\n";
     Db::execute('SET FOREIGN_KEY_CHECKS=0');
-    foreach (['user_credential', 'user_token', 'message', 'user_collection', 'artel_order', 'collection', 'user', 'banner'] as $t) {
+    foreach (['user_credential', 'user_token', 'message', 'user_collection', 'artel_order', 'collection', 'user', 'banner', 'consignment_price_rule'] as $t) {
         Db::execute("TRUNCATE TABLE `{$t}`");
         echo "  TRUNCATE {$t}\n";
     }
@@ -139,7 +140,7 @@ if (is_file($loginSamplePath)) {
         $userRow['is_exist'] = (int) $loginUi['is_exist'];
         echo "  is_exist 取自登录样本 = {$userRow['is_exist']}\n";
     } else {
-        echo "  ⚠ 登录样本无is_exist 字段，跳过（契约测试会标红）\n";
+        echo "  [WARN] 登录样本无is_exist 字段，跳过（契约测试会标红）\n";
     }
 }
 
@@ -151,7 +152,7 @@ if (is_file($loginSamplePath)) {
 //     "id_card":  "520******838"   <- 原站已脱敏，原样保留
 //     "real_name":"王*绵"          <- 原站已脱敏，原样保留
 //
-//⚠️ 本项目决策（2026-10-18）：与原站一致，手机号明文存储与下发。
+//[WARN]️ 本项目决策（2026-10-18）：与原站一致，手机号明文存储与下发。
 //   之前曾在 seed 阶段打成 "175****1293"，导致 getUserInfo 出参与
 //   原站契约不一致，已由 tools/contract/run.php 抓出并修正。
 //
@@ -254,7 +255,7 @@ foreach ($ucSample['data'] as $i => $row) {
         'user_id'       => $uid,
         'collection_id' => (int) $row['collection_id'],
         'num'           => (int) $row['num'],           // int
-        'sell_num'      => (int) $row['sell_num'],      // ⚠️ API 是 string，入库转 int
+        'sell_num'      => (int) $row['sell_num'],      // [WARN]️ API 是 string，入库转 int
         'lock_num'      => (int) $row['lock_num'],
         'is_collection' => (int) $row['is_collection'],
         'can_compound'  => (int) $row['can_compound'],
@@ -276,7 +277,7 @@ foreach ($ucSample['data'] as $i => $row) {
 // ==================== 5. artel_order ====================
 echo "\n=== 灌入 artel_order（实测 2 条真实订单）===\n";
 
-// ⚠️ collection_code 实测为空数组 []，DB 无此列（样本全空无从推断结构），出参时补 []
+// [WARN]️ collection_code 实测为空数组 []，DB 无此列（样本全空无从推断结构），出参时补 []
 $ORDER_MAP = [
     'id', 'order_sn', 'artel_order', 'order_type', 'order_status', 'total_price',
     'num', 'goods_id', 'goods_type', 'goods_name', 'goods_cover_image',
@@ -287,7 +288,7 @@ $ORDER_MAP = [
 foreach ($orderSample['data'] as $row) {
     $o = array_intersect_key($row, array_flip($ORDER_MAP));
     $o['user_id'] = $uid;
-    // ⚠️ order_status 是 int（实测 3），order_type / num 是 string（实测 "2" / "1"）
+    // [WARN]️ order_status 是 int（实测 3），order_type / num 是 string（实测 "2" / "1"）
     //    这里严格按 JSON 原生类型入库，不做任何"统一化"处理
     $o['createtime'] = (int) $o['createtime'];
     $o['updatetime'] = (int) $o['updatetime'];
@@ -324,7 +325,7 @@ foreach ($msgSample['list'] as $row) {
         $exists->save($mRow);
         echo "  消息 id={$row['id']} → 更新\n";
     } else {
-        // ⚠️ 必须显式带上原站 id：Message::create() 不传 id 时走数据库自增，
+        // [WARN]️ 必须显式带上原站 id：Message::create() 不传 id 时走数据库自增，
         //    会把实测 id 55616 覆盖成 1。原站 id 是契约的一部分（用户可见、
         //    且 readMsgById 这类接口按 id 寻址），不能用自增代替。
         Message::create($mRow + ['id' => (int) $row['id']]);
@@ -416,13 +417,86 @@ foreach ($bannerRows as $b) {
 }
 echo "  banner 已灌入 " . count($bannerRows) . " 条（title/sort 样本无值，留默认）\n";
 
+// ==================== 藏品详情 + 费率规则（实测 market/*/collectionDetail） ====================
+echo "\n=== 灌入 collectionDetail 数据（collection id=1 + 双 scene 规则）===\n";
+
+// 样本：
+//   recon/raw2/market_trade_collectiondetail.json      顶层 5 字段 + floor_price 嵌套 11 字段
+//   recon/raw2/market_prepayment_collectiondetail.json 同样 11 字段但**平铺**，仅 tips 不同
+//
+// 🔴 为什么必须补灌 collection id=1：
+//    前面的 collection 段落灌的是 id=8（思维粒子，来自 antMycollection 嵌套样本），
+//    而 collectionDetail 样本指向 id=1（小小键盘-P单）——两个端点指向不同藏品。
+//    若只灌 id=8，前端请求 collection_id=1 会静默拿到空 data，
+//    页面显示「藏品名为空」但不报错，属于最难查的一类问题。
+$tradeDetail  = sample('market_trade_collectiondetail.json')['data'];
+$prepayDetail = sample('market_prepayment_collectiondetail.json')['data'];
+
+$DETAIL_COLL_MAP = [
+    'id', 'name', 'listimg',
+    'reprice_limit', 'reprice_min_limit', 'reprice_beg_max_limit', 'max_buy_price',
+];
+// [WARN]️ reprice_* 类型混用：reprice_limit / max_buy_price 是 int（999999999=不限），
+//    reprice_min_limit / reprice_beg_max_limit 是 string（"0.00"）。
+//    array_intersect_key 保留 JSON 原生类型，不做任何统一化。
+$c1 = array_intersect_key($tradeDetail, array_flip($DETAIL_COLL_MAP));
+$c1['is_show']    = 1;
+$c1['createtime'] = time();
+$c1['updatetime'] = time();
+
+$dbCols1 = array_column(Db::query("SHOW COLUMNS FROM `collection`"), 'Field');
+$c1 = array_intersect_key($c1, array_flip($dbCols1));
+
+$exists = Collection::find($c1['id']);
+if ($exists) {
+    $exists->save($c1);
+    echo "  collection id={$c1['id']} 已存在 → 更新\n";
+} else {
+    Collection::create($c1);
+    echo "  collection id={$c1['id']} 新建（{$c1['name']}）\n";
+}
+
+// --- consignment_price_rule：按 scene 灌两行 ---
+// 🔴🔴 为什么必须两行而不是一行：
+//    两端点 11 字段中 10 个完全相同，仅 tips 差两个字：
+//      trade : 「...寄售出价下限为昨日平均成交价100%...」
+//      prepay: 「...出价下限为昨日平均成交价100%...」
+//    前端 SubmitEntrust.vue 的说明文案明确取 prepay 的 tips 显示。
+//    共用一行 = 有一半用户看到「寄售出价下限」这句错误文案。
+$RULE_MAP = [
+    'minprice', 'price_pro', 'tips', 'price_price_ratio',
+    'pay_platform_service_rate', 'share_proportion_rate',
+    'platform_service_price', 'share_proportion_price',
+    'real_price', 'low_price', 'low_price_text',
+];
+$ruleSources = [
+    'trade'  => $tradeDetail['floor_price'],
+    'prepay' => $prepayDetail,
+];
+foreach ($ruleSources as $scene => $src) {
+    $r = array_intersect_key($src, array_flip($RULE_MAP));
+    $r['collection_id'] = (int) $tradeDetail['id'];
+    $r['scene']         = $scene;
+    $r['status']        = 1;
+    $r['createtime']    = time();
+    $r['updatetime']    = time();
+
+    // save() 而非 create()：seed 必须可重复执行
+    $row = ConsignmentPriceRule::where('collection_id', $r['collection_id'])
+        ->where('scene', $scene)
+        ->find() ?: new ConsignmentPriceRule();
+    $row->save($r);
+    echo "  规则 scene={$scene} 已灌入（tips 前缀：" . mb_substr((string) $r['tips'], 0, 12) . "...）\n";
+}
+
 // ==================== 汇总 ====================
-// ⚠️ 必须放在所有域之后。曾放在中间，导致 banner 恒显示 0 ——
+// [WARN]️ 必须放在所有域之后。曾放在中间，导致 banner 恒显示 0 ——
 //    汇总表说谎比没有汇总更糟。
 echo "\n=== 灌入完成，核对行数 ===\n";
 foreach ([
     'user', 'user_credential', 'collection', 'user_collection',
     'artel_order', 'message', 'banner', 'union_config', 'union_member',
+    'consignment_price_rule',
 ] as $t) {
     $n = Db::table($t)->count();
     echo "  {$t}: {$n}\n";
@@ -441,9 +515,9 @@ foreach ($expectIds as $table => $wantId) {
     }
     $got = Db::table($table)->where('id', $wantId)->count();
     if ($got > 0) {
-        echo "  ✅ {$table}.id={$wantId} 已保留\n";
+        echo "  [OK] {$table}.id={$wantId} 已保留\n";
     } else {
-        echo "  ❌ {$table}.id={$wantId} 丢失（可能被自增覆盖）\n";
+        echo "  [FAIL] {$table}.id={$wantId} 丢失（可能被自增覆盖）\n";
         $fail++;
     }
 }
@@ -452,9 +526,9 @@ foreach ($expectIds as $table => $wantId) {
 foreach ($orderSample['data'] as $row) {
     $oid = (int) $row['id'];
     if (Db::table('artel_order')->where('id', $oid)->count() > 0) {
-        echo "  ✅ artel_order.id={$oid} 已保留\n";
+        echo "  [OK] artel_order.id={$oid} 已保留\n";
     } else {
-        echo "  ❌ artel_order.id={$oid} 丢失\n";
+        echo "  [FAIL] artel_order.id={$oid} 丢失\n";
         $fail++;
     }
 }
@@ -466,20 +540,66 @@ foreach ($bannerRows as $b) {
     $bid = (int) $b['id'];
     $got = Db::table('banner')->where('id', $bid)->find();
     if (!$got) {
-        echo "  ❌ banner.id={$bid} 丢失\n";
+        echo "  [FAIL] banner.id={$bid} 丢失\n";
         $fail++;
         continue;
     }
     $imgOk = $got['image'] === (string) $b['image'];
     $urlOk = (string) $got['url'] === (string) $b['url'];
     if ($imgOk && $urlOk) {
-        echo "  ✅ banner.id={$bid} image/url 与实测一致\n";
+        echo "  [OK] banner.id={$bid} image/url 与实测一致\n";
     } else {
-        echo "  ❌ banner.id={$bid} 不一致\n";
+        echo "  [FAIL] banner.id={$bid} 不一致\n";
         echo "     实测 image=" . $b['image'] . "\n";
         echo "     实际 image=" . $got['image'] . "\n";
         $fail++;
     }
+}
+
+// collection id=1 保留（collectionDetail 样本指向它，不是 id=8）
+if (Db::table('collection')->where('id', (int) $tradeDetail['id'])->count() > 0) {
+    echo "  [OK] collection.id={$tradeDetail['id']} 已保留（collectionDetail 样本藏品）\n";
+} else {
+    echo "  [FAIL] collection.id={$tradeDetail['id']} 丢失\n";
+    $fail++;
+}
+
+// 费率规则逐字段核对：11 字段必须与各自端点的样本逐字节一致
+// 🔴 最重要的断言是 tips——它证明两条记录确实按 scene 分开存了，
+//    而不是「灌了两行但内容完全相同」这种自欺欺人的通过。
+foreach ($ruleSources as $scene => $src) {
+    $got = Db::table('consignment_price_rule')
+        ->where('collection_id', (int) $tradeDetail['id'])
+        ->where('scene', $scene)
+        ->find();
+    if (!$got) {
+        echo "  [FAIL] consignment_price_rule scene={$scene} 丢失\n";
+        $fail++;
+        continue;
+    }
+    $bad = [];
+    foreach ($RULE_MAP as $f) {
+        $want = is_string($src[$f] ?? null) ? (string) ($src[$f] ?? '') : (string) ($src[$f] ?? '');
+        $have = (string) ($got[$f] ?? '');
+        if ($want !== $have) {
+            $bad[] = "{$f}: 实测=\"{$want}\" 实际=\"{$have}\"";
+        }
+    }
+    if (!$bad) {
+        echo "  [OK] 规则 scene={$scene} 11 字段与实测一致\n";
+    } else {
+        echo "  [FAIL] 规则 scene={$scene} 字段不一致：\n      " . implode("\n      ", $bad) . "\n";
+        $fail++;
+    }
+}
+// scene 区分断言：两条 tips 必须不同，否则说明根本没按端点分开
+$tipTrade  = (string) Db::table('consignment_price_rule')->where('scene', 'trade')->value('tips');
+$tipPrepay = (string) Db::table('consignment_price_rule')->where('scene', 'prepay')->value('tips');
+if ($tipTrade !== '' && $tipTrade !== $tipPrepay) {
+    echo "  [OK] 两端点 tips 已按 scene 区分（trade「寄售出价下限」≠ prepay「出价下限」）\n";
+} else {
+    echo "  [FAIL] 两端点 tips 未区分：trade=\"{$tipTrade}\" prepay=\"{$tipPrepay}\"\n";
+    $fail++;
 }
 
 if ($fail > 0) {
@@ -487,4 +607,4 @@ if ($fail > 0) {
     exit(1);
 }
 
-echo "\n✅ seed 完成。所有值均来自实测样本，无编造数据，原站 id 全部保留。\n";
+echo "\n[OK] seed 完成。所有值均来自实测样本，无编造数据，原站 id 全部保留。\n";

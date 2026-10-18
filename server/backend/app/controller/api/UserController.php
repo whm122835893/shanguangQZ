@@ -245,4 +245,36 @@ class UserController
 
         return Response::ok(UnionFormatter::myUnion((int) $user['id']), Msg::UNION_MY);
     }
+
+    /**
+     * GET|POST /union/index/logs —— 公会战力流水【MOCK】
+     *
+     * v2.4 从 TradeController 迁入：union/index/logs 属公会域，
+     * 与 myUnion 同域归位（TradeController 同时解除超 300 行）。
+     *
+     * ⚠️ 分页参数名是 pageSize 不是 limit——原站 API.md §2.3
+     *    记录过三种分页写法，本端点用 page + pageSize。
+     */
+    public function unionLogs()
+    {
+        [$user, $authErr] = $this->currentUser();
+        if ($authErr !== null) {
+            return $authErr;
+        }
+
+        $p     = max(1, Request::int('page', 1));
+        $size  = max(1, min(100, Request::int('pageSize', 15)));
+        $total = 20;
+        $list  = [];
+        for ($i = ($p - 1) * $size; $i < min($p * $size, $total); $i++) {
+            $list[] = [
+                'id'         => $i + 1,
+                'type'       => $i % 2 === 0 ? 1 : 2,      // 1 获得 2 消耗（int）
+                'title'      => ($i % 2 === 0 ? '联合战力+' : '联合战力-') . ($i + 1),
+                'num'        => (string) (($i % 3) + 1),  // 原站此字段为 string
+                'createtime' => time() - $i * 600,
+            ];
+        }
+        return Response::page($list, $total, $size, $p);
+    }
 }

@@ -45,6 +45,10 @@ use think\Model;
  *   三个字段参与不同计算，混用会导致对账错位。
  *
  * @property int    $id
+ * @property string $scene        🔴 trade / prepay——两端点只有 tips 不同，不能共用一条记录。
+ *                               早期唯一索引 uk_collection(collection_id) 会导致第二条插不进去，
+ *                               已改为 uk_collection_scene(collection_id, scene)。
+ *
  * @property int    $collection_id
  * @property int    $minprice    int，最低价门槛
  * @property int    $price_pro   int，溢价基准价
@@ -69,6 +73,7 @@ class ConsignmentPriceRule extends Model
     protected $schema = [
         'id'                       => 'int',
         'collection_id'            => 'int',
+        'scene'                    => 'string',  // 🔴 trade / prepay，两端点 tips 不同
         'minprice'                 => 'int',     // ⚠️ int
         'price_pro'                => 'int',     // ⚠️ int
         'price_price_ratio'        => 'string',  // ⚠️ 不可转 int
@@ -168,14 +173,21 @@ class ConsignmentPriceRule extends Model
     }
 
     /**
-     * 取某藏品的有效规则（status=1，取最新一条）
+     * 取某藏品在某场景下的有效规则（status=1，取最新一条）
      *
-     * @return self|null
+     * 🔴 $scene 必填，没有默认值——这是刻意设计：
+     *    两端点 10/11 字段相同、仅 tips 不同。若允许不传 scene，
+     *    调用方就可能拿到 trade 的 tips 用在 prepay 端点，
+     *    前端会把「寄售出价下限」这句错误文案展示给预付用户。
+     *    强制传参让这种错误在编译期/调用处就暴露。
+     *
+     * @param string $scene 'trade' | 'prepay'
      */
-    public static function findForCollection(int $collectionId): ?self
+    public static function findForCollection(int $collectionId, string $scene = 'trade'): ?self
     {
         /** @var self|null */
         return self::where('collection_id', $collectionId)
+            ->where('scene', $scene)
             ->where('status', 1)
             ->order('id', 'desc')
             ->find();

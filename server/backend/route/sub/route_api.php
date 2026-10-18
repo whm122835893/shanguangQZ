@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use think\facade\Route;
+use app\controller\api\AccountController;
 use app\controller\api\ContentController;
 use app\controller\api\ContentPlayController;
 use app\controller\api\MarketController;
@@ -124,17 +125,17 @@ Route::rule('order/order/getMarketOrderDetails',    [TradeController::class, 'ge
 Route::rule('order/order/saleMarketOrderDetail',    [TradeController::class, 'saleMarketOrderDetail'],    'GET|POST'); // [MOCK]
 Route::rule('market/trade/entrust',                 [TradeController::class, 'entrust'],                  'GET|POST'); // [MOCK]
 Route::rule('market/trade/entrustOrderList',        [TradeController::class, 'entrustOrderList'],         'GET|POST'); // [MOCK]
-Route::rule('market/trade/collectionDetail',        [TradeController::class, 'tradeCollectionDetail'],   'GET|POST'); // [MOCK]
+Route::rule('market/trade/collectionDetail',        [TradeController::class, 'tradeCollectionDetail'],   'GET|POST'); // [DB]
 Route::rule('market/trade/begBuyOrderList',         [TradeController::class, 'begBuyOrderList'],          'GET|POST'); // [MOCK]
 Route::rule('market/trade/begBuyOrderInfo',         [TradeController::class, 'begBuyOrderInfo'],          'GET|POST'); // [MOCK]
-Route::rule('market/Prepayment/collectionDetail',   [TradeController::class, 'prepaymentCollectionDetail'], 'GET|POST'); // [MOCK]
+Route::rule('market/Prepayment/collectionDetail',   [TradeController::class, 'prepaymentCollectionDetail'], 'GET|POST'); // [DB]
 Route::rule('market/Prepayment/myOrderInfo',        [TradeController::class, 'myOrderInfo'],              'GET|POST'); // [MOCK]
 Route::rule('user_collection/user_collection/detail',            [TradeController::class, 'collectionDetail'],  'GET|POST'); // [MOCK]
 Route::rule('user_collection/user_collection/show_resale_money', [TradeController::class, 'showResaleMoney'],   'GET|POST'); // [MOCK]
-Route::rule('union/index/logs',                     [TradeController::class, 'unionLogs'],                'GET|POST'); // [MOCK]
+Route::rule('union/index/logs',                     [UserController::class, 'unionLogs'],                'GET|POST'); // [MOCK]
 Route::rule('user/newrank1',                        [TradeController::class, 'newRank'],                  'GET|POST'); // [MOCK]
 Route::rule('index/getConfig',                      [TradeController::class, 'getConfig'],                'GET|POST'); // [DB] 已按原站补 key 校验
 Route::rule('sms/send',                             [PayController::class, 'sendSms'],                  'GET|POST'); // [MOCK]
-Route::rule('user/register',                        [TradeController::class, 'register'],                 'GET|POST'); // [MOCK]
-Route::rule('user/resetpwd',                        [TradeController::class, 'resetPwd'],                 'GET|POST'); // [MOCK]
+Route::rule('user/register',                        [AccountController::class, 'register'],                 'GET|POST'); // [MOCK]
+Route::rule('user/resetpwd',                        [AccountController::class, 'resetPwd'],                 'GET|POST'); // [MOCK]
 Route::rule('order/pay/batchdopay',                 [PayController::class, 'batchDoPay'],               'GET|POST'); // [MOCK]

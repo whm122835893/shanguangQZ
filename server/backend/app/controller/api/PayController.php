@@ -7,11 +7,18 @@ use app\service\MockData;
 use app\common\Request;
 use app\common\Response;
 use app\controller\api\Concerns\HasAuth;
+use app\controller\api\Concerns\MakesOrders;
 
 /**
- * 支付域控制器（v2.3 从 Trade 拆分）
+ * 支付域控制器（v2.3 从 Trade 拆分，v2.4 修 makeOrder 断裂）
  *
  * 下单、批量支付、充值、开户、短信验证码
+ *
+ * 🔴 v2.4 修复：本类 5 个 Create*Order 端点一直在调 $this->makeOrder()，
+ *    但该方法实体留在 TradeController 且是 private——跨类调用必然 fatal。
+ *    已实测复现（POST /api/order/pay/CreateVipOrder 返回 500 HTML 错误页），
+ *    现改为共用 Concerns\MakesOrders trait。
+ *    教训：私有方法跨类不可见，PHP 运行期才报错，静态检查与 lint 都发现不了。
  *
  * 🔴 本文件全部端点当前为【MOCK】——用内存假数据补齐联调缺口，
  *    待拿到原站成功响应样本后逐个切换为 DB 驱动。
@@ -26,7 +33,7 @@ use app\controller\api\Concerns\HasAuth;
  */
 class PayController
 {
-    use HasAuth;
+    use HasAuth, MakesOrders;
 
     public function batchBuy()
     {

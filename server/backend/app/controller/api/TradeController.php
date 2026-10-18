@@ -3,7 +3,11 @@ declare(strict_types=1);
 
 namespace app\controller\api;
 
+use app\model\Collection;
+use app\model\ConsignmentPriceRule;
+use app\service\MarketFormatter;
 use app\service\MockData;
+use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
 use app\controller\api\Concerns\HasAuth;
@@ -11,7 +15,8 @@ use app\controller\api\Concerns\HasAuth;
 /**
  * 交易域控制器（v2.3 从 Trade 拆分）—— 订单/市场单/寄售/藏品详情/求购单
  *
- * 🔴 全部端点当前为【MOCK】。切 DB 时禁止凭端点名猜字段，必须以 recon/ 实测样本为准。
+ * 已切 DB 的端点：tradeCollectionDetail / prepaymentCollectionDetail（market 域，v2.4）
+ * 其余端点仍为【MOCK】。切 DB 时禁止凭端点名猜字段，必须以 recon/ 实测样本为准。
  * 🔐 鉴权走 HasAuth::currentUser()，禁用 Request::hasToken()（只判非空，是后门）。
  * ⚠️ 改动后必须跑：php tools/contract/run.php
  *
@@ -88,14 +93,64 @@ class TradeController
         return Response::page($r['list'], $r['total'], $s, $p);
     }
 
+    /**
+     * market/trade/collectionDetail —— 寄售藏品详情 + 地板价
+     *
+     * 实测结构：data = {id, name, listimg, reprice_limit, reprice_min_limit,
+     *                  reprice_beg_max_limit, max_buy_price, floor_price:{11 字段}}
+     * 信封 msg = 「藏品详情」
+     *
+     * 🔴 两个实测事实，改这里前必须知道：
+     *   1. floor_price 是嵌套对象，字段来自 consignment_price_rule.scene='trade'
+     *   2. 前端传参 collection_id 是**字符串**（"124"），Request::int 已兼容
+     */
     public function tradeCollectionDetail()
     {
-        return Response::ok(MockData::collection(0));
+        $collectionId = Request::int('collection_id');
+
+        $coll = $collectionId > 0 ? Collection::find($collectionId) : null;
+        $rule = $collectionId > 0
+            ? ConsignmentPriceRule::findForCollection($collectionId, 'trade')
+            : null;
+
+        // 原站无「藏品不存在」分支的样本。返回空数组（不是 null），
+        // 前端 SubmitBegBuy.vue 有 r.data 判空保护，不会崩。
+        if (!$coll || !$rule) {
+            return Response::ok([], Msg::COLLECTION_DETAIL_TRADE);
+        }
+
+        return Response::ok(
+            MarketFormatter::tradeCollectionDetail($coll->toArray(), $rule),
+            Msg::COLLECTION_DETAIL_TRADE
+        );
     }
 
+    /**
+     * market/Prepayment/collectionDetail —— 预付藏品的地板价/费率
+     *
+     * 实测结构：data = {11 字段}，**平铺无嵌套**（与 trade 端点最大的结构差异）
+     * 信封 msg = 「相关金额」
+     *
+     * 🔴 前端 SubmitEntrust.vue 的说明文案取的就是这个端点的 tips
+     *    （「出价下限为昨日平均成交价100%」），不是 trade 的「寄售出价下限」。
+     *    所以 scene='prepay' 不能省、不能错。
+     */
     public function prepaymentCollectionDetail()
     {
-        return Response::ok(MockData::collection(1));
+        $collectionId = Request::int('collection_id');
+
+        $rule = $collectionId > 0
+            ? ConsignmentPriceRule::findForCollection($collectionId, 'prepay')
+            : null;
+
+        if (!$rule) {
+            return Response::ok([], Msg::COLLECTION_DETAIL_PREPAY);
+        }
+
+        return Response::ok(
+            MarketFormatter::prepaymentCollectionDetail($rule),
+            Msg::COLLECTION_DETAIL_PREPAY
+        );
     }
 
     public function begBuyOrderList()
@@ -184,30 +239,8 @@ class TradeController
     }
 
     // ==================== 其他 ====================
-
-    public function unionLogs()
-    {
-        [$user, $authErr] = $this->currentUser();
-        if ($authErr !== null) {
-            return $authErr;
-        }
-
-        // 原站此端点用 pageSize 分页（API.md §2.3 三种写法之一）
-        $p     = max(1, Request::int('page', 1));
-        $size  = max(1, min(100, Request::int('pageSize', 15)));
-        $total = 20;
-        $list  = [];
-        for ($i = ($p - 1) * $size; $i < min($p * $size, $total); $i++) {
-            $list[] = [
-                'id'         => $i + 1,
-                'type'       => $i % 2 === 0 ? 1 : 2,      // 1 获得 2 消耗（int）
-                'title'      => ($i % 2 === 0 ? '联合战力+' : '联合战力-') . ($i + 1),
-                'num'        => (string) (($i % 3) + 1),  // 原站此字段为 string
-                'createtime' => time() - $i * 600,
-            ];
-        }
-        return Response::page($list, $total, $size, $p);
-    }
+    // unionLogs 已移至 UserController（union/index/logs 属公会域，
+    // 与 union/user/myunion 同域归位；v2.4 拆分，兼解本文件超 300 行）
 
     public function newRank()
     {
@@ -247,53 +280,10 @@ class TradeController
     }
 
     // ==================== 账号 ====================
-
-    public function register()
-    {
-        $mobile   = Request::str('mobile');
-        $password = Request::str('password');
-        $code     = Request::str('code');
-
-        if (!preg_match('/^1[3-9]\d{9}$/', $mobile)) {
-            return Response::fail('手机号格式错误');
-        }
-        if (strlen($password) < 6) {
-            return Response::fail('密码至少 6 位');
-        }
-        if ($code !== '123456') {
-            return Response::fail('验证码错误');
-        }
-        return Response::ok(['userinfo' => MockData::loginResult()]);
-    }
-
-    public function resetPwd()
-    {
-        $mobile = Request::str('mobile');
-        $code   = Request::str('code');
-        if (!preg_match('/^1[3-9]\d{9}$/', $mobile)) {
-            return Response::fail('手机号格式错误');
-        }
-        if ($code !== '123456') {
-            return Response::fail('验证码错误');
-        }
-        return Response::ok(['mobile' => $mobile]);
-    }
-
+    // register / resetPwd 已移至 AccountController（user/ 域，v2.4 归位）
+    //
     // ==================== 内部 ====================
-
-    /** 下单统一实现：返回订单三元组，供各Create*Order 复用 */
-    private function makeOrder(): \think\response\Json
-    {
-        [$user, $authErr] = $this->currentUser();
-        if ($authErr !== null) {
-            return $authErr;
-        }
-
-        $ts = time();
-        return Response::ok([
-            'order_id'   => random_int(20000, 29999),
-            'order_sn'   => date('YmdHis', $ts) . random_int(10000000000000, 99999999999999),
-            'pay_type'   => 4,
-            'order_type' => 2,
-        ]);
-    }}
+    // makeOrder 已抽至 Concerns\MakesOrders（v2.4）——曾因留在本类变成
+    // 私有方法，导致 PayController 的 5 个 Create*Order 端点调用时 fatal
+    // （实测 500 HTML 错误页，静态检查发现不了，详见 trait 注释）。
+}
