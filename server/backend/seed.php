@@ -49,12 +49,16 @@ function sample(string $name): array
         __DIR__ . '/../../recon/raw2/',
         __DIR__ . '/../../recon/raw/',
         __DIR__ . '/../../recon/raw3/',
+        __DIR__ . '/../../recon/raw4/',
+        __DIR__ . '/../../recon/raw5/',
         '/workspace/recon/raw2/',
         '/workspace/recon/raw/',
         '/workspace/recon/raw3/',
+        '/workspace/recon/raw4/',
+        '/workspace/recon/raw5/',
     ];
     // 环境变量优先，便于临时指向别处样本
-    foreach (['GANDART_SAMPLE_DIR', 'GANDART_SAMPLE_DIR1', 'GANDART_SAMPLE_DIR3'] as $env) {
+    foreach (['GANDART_SAMPLE_DIR', 'GANDART_SAMPLE_DIR1', 'GANDART_SAMPLE_DIR3', 'GANDART_SAMPLE_DIR4', 'GANDART_SAMPLE_DIR5'] as $env) {
         $d = getenv($env);
         if ($d) {
             array_unshift($dirs, rtrim($d, '/') . '/');
@@ -277,18 +281,28 @@ foreach ($ucSample['data'] as $i => $row) {
 // ==================== 5. artel_order ====================
 echo "\n=== 灌入 artel_order（实测 2 条真实订单）===\n";
 
-// [WARN]️ collection_code 实测为空数组 []，DB 无此列（样本全空无从推断结构），出参时补 []
+// 🔴 collection_code 实测**双形态**（TradeFormatter::collectionCode 同款论证）：
+//    id=18554 → []（无编号信息）；id=14642 → ["1926/100000"]。
+//    DB 列存原样字符串 "1926/100000"（出参按 "," 拆回数组），空数组存 ""。
+//    曾据首条样本误判「恒空」不灌此列，契约用例抓到 14642 差值为红——
+//    样本必须逐条看，不能拿第一条代表全部。
 $ORDER_MAP = [
     'id', 'order_sn', 'artel_order', 'order_type', 'order_status', 'total_price',
     'num', 'goods_id', 'goods_type', 'goods_name', 'goods_cover_image',
-    'series_name', 'crystal_type', 'crystal_number', 'uc_ids',
+    'series_name', 'crystal_type', 'crystal_number', 'uc_ids', 'collection_code',
     'createtime', 'updatetime',
 ];
 
 foreach ($orderSample['data'] as $row) {
     $o = array_intersect_key($row, array_flip($ORDER_MAP));
     $o['user_id'] = $uid;
-    // [WARN]️ order_status 是 int（实测 3），order_type / num 是 string（实测 "2" / "1"）
+    // 数组形态（["1926/100000"]）→ 原样字符串入库；空数组 → ""
+    if (isset($o['collection_code'])) {
+        $o['collection_code'] = is_array($o['collection_code'])
+            ? implode(',', $o['collection_code'])
+            : (string) $o['collection_code'];
+    }
+    // [WARN] order_status 是 int（实测 3），order_type / num 是 string（实测 "2" / "1"）
     //    这里严格按 JSON 原生类型入库，不做任何"统一化"处理
     $o['createtime'] = (int) $o['createtime'];
     $o['updatetime'] = (int) $o['updatetime'];
@@ -489,6 +503,103 @@ foreach ($ruleSources as $scene => $src) {
     echo "  规则 scene={$scene} 已灌入（tips 前缀：" . mb_substr((string) $r['tips'], 0, 12) . "...）\n";
 }
 
+// ==================== 求购域（recon/raw5/ 实测，2026-10-18） ====================
+// 🔴 本段是原站「制造数据」授权下的真实沉淀：账号 16797 在原站真实创建了
+//    两笔求购单（order_id 76/77，藏品 162 龙凤夺宝（金月），单价 20000.00），
+//    76 自动过期、77 手动取消——两笔终态均从原站 begBuyOrderList 实测抄录，
+//    无一个字段是编造的。
+//
+// 样本：
+//   recon/raw5/market_trade_collectionDetail_162.json        藏品详情（含 reprice 四字段）
+//   recon/raw5/market_trade_begBuyOrderList_after_cancel.json 两笔求购单终态（28 字段/行）
+echo "\n=== 灌入求购域数据（collection 162 + series 9 + 求购单 76/77）===\n";
+
+// --- series 9（卷土重来）—— 来源是求购单响应的 series 快照，原站无系列列表样本 ---
+$seriesRow = ['id' => 9, 'name' => '卷土重来', 'type' => 10, 'sort' => 0, 'is_show' => 1, 'createtime' => time()];
+$seriesExists = Db::table('series')->where('id', 9)->find();
+if ($seriesExists) {
+    Db::table('series')->where('id', 9)->update(['name' => $seriesRow['name']]);
+    echo "  series id=9 已存在 → 更新（{$seriesRow['name']}）\n";
+} else {
+    Db::table('series')->insert($seriesRow);
+    echo "  series id=9 新建（{$seriesRow['name']}）\n";
+}
+
+// --- collection 162（龙凤夺宝（金月））--- 顶层 5 字段 + reprice 四字段 + series_id 快照
+$detail162 = sample('market_trade_collectionDetail_162.json')['data'];
+$COLL162_MAP = [
+    'id', 'name', 'listimg',
+    'reprice_limit', 'reprice_min_limit', 'reprice_beg_max_limit', 'max_buy_price',
+];
+$c162 = array_intersect_key($detail162, array_flip($COLL162_MAP));
+// series_id 来源：求购单响应的 series_id=9（collectionDetail 响应不含此字段）
+$c162['series_id']  = 9;
+$c162['is_show']    = 1;
+$c162['createtime'] = time();
+$c162['updatetime'] = time();
+$dbCols162 = array_column(Db::query("SHOW COLUMNS FROM `collection`"), 'Field');
+$c162 = array_intersect_key($c162, array_flip($dbCols162));
+
+$exists162 = Collection::find($c162['id']);
+if ($exists162) {
+    $exists162->save($c162);
+    echo "  collection id={$c162['id']} 已存在 → 更新（{$c162['name']}）\n";
+} else {
+    Collection::create($c162);
+    echo "  collection id={$c162['id']} 新建（{$c162['name']}）\n";
+}
+
+// --- consignment_price_rule trade（162 的地板价规则，来自 floor_price 嵌套 11 字段）---
+$RULE162_MAP = [
+    'minprice', 'price_pro', 'tips', 'price_price_ratio',
+    'pay_platform_service_rate', 'share_proportion_rate',
+    'platform_service_price', 'share_proportion_price',
+    'real_price', 'low_price', 'low_price_text',
+];
+$r162 = array_intersect_key($detail162['floor_price'], array_flip($RULE162_MAP));
+$r162['collection_id'] = (int) $detail162['id'];
+$r162['scene']         = 'trade';
+$r162['status']        = 1;
+$r162['createtime']    = time();
+$r162['updatetime']    = time();
+$rule162 = ConsignmentPriceRule::where('collection_id', $r162['collection_id'])
+    ->where('scene', 'trade')
+    ->find() ?: new ConsignmentPriceRule();
+$rule162->save($r162);
+echo "  规则 scene=trade 已灌入（low_price={$r162['low_price']}，求购创建的地板价校验源）\n";
+
+// --- beg_buy_order 两笔（显式保留原站 id 76/77，终态逐字段抄录）---
+// 🔴 为什么灌「已取消」终态而不是「待付款」态：
+//    surplus_time_text = 300 - (now - createtime)，任何过去的 createtime
+//    都会倒计时归零。灌一个看似 active 的单，刷新一次就变成 0——
+//    那是经不起时间考验的假数据。取消态是时间无关的稳定事实。
+$BEG_ORDER_MAP = [
+    'id', 'order_sn', 'goods_id', 'order_status', 'number',
+    'price', 'total_price', 'platform_service_rate',
+    'platform_service_price', 'single_platform_service_price',
+    'goods_name', 'goods_image', 'series_id', 'series_name',
+    'pay_scene', 'pay_way', 'pay_time', 'pay_type', 'is_refund',
+    'real_trans_amt', 'huifu_pay_type', 'canceltime',
+    'order_type', 'sale_number', 'createtime', 'updatetime',
+];
+$begSample = sample('market_trade_begBuyOrderList_after_cancel.json')['data'];
+foreach ($begSample['data'] as $row) {
+    $o = array_intersect_key($row, array_flip($BEG_ORDER_MAP));
+    $o['user_id'] = $uid;
+    // 严格按 JSON 原生类型入库（number/order_status 是 int，金额是 string）
+    $o['createtime'] = (int) $o['createtime'];
+    $o['updatetime'] = (int) $o['updatetime'];
+
+    $exists = \app\model\BegBuyOrder::find($o['id']);
+    if ($exists) {
+        $exists->save($o);
+        echo "  求购单 id={$o['id']} → 更新（status={$o['order_status']}）\n";
+    } else {
+        \app\model\BegBuyOrder::create($o);
+        echo "  求购单 id={$o['id']} 新建（sn={$o['order_sn']}, status={$o['order_status']}）\n";
+    }
+}
+
 // ==================== 汇总 ====================
 // [WARN]️ 必须放在所有域之后。曾放在中间，导致 banner 恒显示 0 ——
 //    汇总表说谎比没有汇总更糟。
@@ -496,7 +607,7 @@ echo "\n=== 灌入完成，核对行数 ===\n";
 foreach ([
     'user', 'user_credential', 'collection', 'user_collection',
     'artel_order', 'message', 'banner', 'union_config', 'union_member',
-    'consignment_price_rule',
+    'consignment_price_rule', 'series', 'beg_buy_order',
 ] as $t) {
     $n = Db::table($t)->count();
     echo "  {$t}: {$n}\n";

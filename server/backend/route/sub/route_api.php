@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 use think\facade\Route;
 use app\controller\api\AccountController;
+use app\controller\api\BegBuyController;
 use app\controller\api\ContentController;
 use app\controller\api\ContentPlayController;
 use app\controller\api\MarketController;
@@ -74,6 +75,12 @@ Route::rule('market/market/marketList',                   [MarketController::cla
 Route::rule('market/market/MarketDetail/ids/:id',         [MarketController::class, 'marketDetail'],            'GET|POST'); // [MOCK]
 Route::rule('market/trade/tradingInformation',            [MarketController::class, 'tradingInformation'],      'GET|POST'); // [DB]
 Route::rule('market/trade/begBuyList',                    [MarketController::class, 'begBuyList'],              'GET|POST'); // [DB]
+// 🔴 求购域（v2.6 切 DB）：真实端点名是 createBegBuyOrder/cancelBegBuyOrder，
+//    前端 api/index.js 的 begBuy/entrust 是死代码（原站无此路由，404）
+Route::rule('market/trade/createBegBuyOrder',             [BegBuyController::class, 'createBegBuyOrder'],   'GET|POST'); // [DB]
+Route::rule('market/trade/cancelBegBuyOrder',             [BegBuyController::class, 'cancelBegBuyOrder'],   'GET|POST'); // [DB]
+Route::rule('market/trade/begBuyOrderList',               [BegBuyController::class, 'begBuyOrderList'],     'GET|POST'); // [DB]
+Route::rule('market/trade/begBuyOrderInfo',               [BegBuyController::class, 'begBuyOrderInfo'],     'GET|POST'); // [DB]
 
 // ==================== 交易下单 ====================
 Route::rule('order/pay/fastOrderNew',     [OrderController::class, 'fastOrderNew'],     'GET|POST'); // [MOCK]
@@ -127,8 +134,6 @@ Route::rule('order/order/saleMarketOrderDetail',    [TradeController::class, 'sa
 Route::rule('market/trade/entrust',                 [TradeController::class, 'entrust'],                  'GET|POST'); // [MOCK]
 Route::rule('market/trade/entrustOrderList',        [TradeController::class, 'entrustOrderList'],         'GET|POST'); // [MOCK]
 Route::rule('market/trade/collectionDetail',        [TradeController::class, 'tradeCollectionDetail'],   'GET|POST'); // [DB]
-Route::rule('market/trade/begBuyOrderList',         [TradeController::class, 'begBuyOrderList'],          'GET|POST'); // [MOCK]
-Route::rule('market/trade/begBuyOrderInfo',         [TradeController::class, 'begBuyOrderInfo'],          'GET|POST'); // [MOCK]
 Route::rule('market/Prepayment/collectionDetail',   [TradeController::class, 'prepaymentCollectionDetail'], 'GET|POST'); // [DB]
 Route::rule('market/Prepayment/myOrderInfo',        [TradeController::class, 'myOrderInfo'],              'GET|POST'); // [MOCK]
 Route::rule('user_collection/user_collection/detail',            [TradeController::class, 'collectionDetail'],  'GET|POST'); // [MOCK]

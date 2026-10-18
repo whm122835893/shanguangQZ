@@ -33,8 +33,18 @@ final class MarketStats
     /** 寄售中（consignment.status，表注释语义） */
     private const STATUS_CONSIGNING = 1;
 
-    /** 求购中（beg_buy_order.status，表注释语义） */
-    private const STATUS_BEG_BUYING = 1;
+    /**
+     * 求购中（beg_buy_order.order_status=2）
+     *
+     * 🔴 v2.6 修正：旧版按 status=1 计「求购中」是错的口径。
+     *    OrderEnum（原站 order-list.js 逆向实证）order_type=11 的状态机：
+     *      1=待付款（创建后 300 秒倒计时）2=求购中（支付成功后）
+     *      3=已成交 4=已取消
+     *    raw5 实测：创建后 order_status=1 时 begBuyList（公开求购墙）
+     *    total 仍为 0 —— 公开墙只展示**已支付**的求购。
+     *    本账号 money=0.00 无法支付，故本地/原站该计数恒 0。
+     */
+    private const STATUS_BEG_BUYING = 2;
 
     /**
      * 某藏品的三态行情统计
@@ -50,8 +60,8 @@ final class MarketStats
 
         // 当前求购数：该藏品求购中的单数
         $currentBuying = (int) Db::name('beg_buy_order')
-            ->where('collection_id', $collectionId)
-            ->where('status', self::STATUS_BEG_BUYING)
+            ->where('goods_id', $collectionId)
+            ->where('order_status', self::STATUS_BEG_BUYING)
             ->count();
 
         // 当前寄售数：该藏品寄售中的单数
@@ -124,7 +134,7 @@ final class MarketStats
      * 某藏品「求购中」的求购单数 —— begBuyList 的 total 来源
      *
      * 🔴 与 tradingStats() 里的 current_buying 是同一个查询口径
-     *    （collection_id + status=1），两个端点必须一致：
+     *    （goods_id + order_status=2「求购中」），两个端点必须一致：
      *    tradingInformation 显示「当前求购 N」，begBuyList 的 total
      *    也应该是 N。若一边改口径一边不改，两个页面数字对不上，
      *    而这种不一致不会有任何报错。
@@ -139,8 +149,8 @@ final class MarketStats
             return 0;
         }
         return (int) Db::name('beg_buy_order')
-            ->where('collection_id', $collectionId)
-            ->where('status', self::STATUS_BEG_BUYING)
+            ->where('goods_id', $collectionId)
+            ->where('order_status', self::STATUS_BEG_BUYING)
             ->count();
     }
 }

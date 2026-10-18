@@ -81,31 +81,48 @@ if (!function_exists('runMarketCases')) {
             $failed++;
         }
 
-        // ---- 9. market/trade/begBuyList（求购列表：5 键信封，空态全 0）----
+        // ---- 9. market/trade/begBuyList（求购列表：双分支信封，锁键序 + 空态值）----
         //
-        // 🔴 锁两类契约：
-        //    a. 5 键集合与键序 —— current_page 开头，与 orderList 的 total 开头
-        //       「同 5 键不同序」正是两个端点的区分点（compare() 只比字段集
-        //       不比顺序，故键序单独断言）
-        //    b. 空态值 last_page=0 / per_page=0 —— 不是 Response::page() 的
-        //       max(1,...) 钳位值；直接复用那个方法会静默把 0 钳成 1
+        // 🔴 锁三类契约：
+        //    a. 双分支结构 —— 按藏品可求购性分流（raw6 矩阵探测实证）：
+        //       不可求购（reprice_beg_max_limit ≤ 0）→ current_page 开头 + per_page=0
+        //       可求购  （reprice_beg_max_limit > 0）→ total 开头 + per_page=50
+        //       两个分支键集相同、键序不同、per_page 不同——compare() 只比字段集，
+        //       键序与 per_page 必须单独断言
+        //    b. 空态值 —— last_page=0 不是 Response::page() 的钳位值 1；
+        //       直接复用那个方法会静默把 0 钳成 1
+        //    c. 空态 current_page=1 —— 请求 page=2 也不回显（实测两分支一致）
         //
-        // ⚠️ 样本是空态契约（原站该账号无求购单）。本地 beg_buy_order 表 0 行
-        //    （无种子来源：求购写端点无成功样本，D-002），total 恒 0 与样本一致。
-        //    若将来灌入求购数据，本用例会红——那是预期信号：非空态契约
-        //    需要新的非空样本才能确立（D-006）。
+        // ⚠️ 两个样本都是空态契约（原站该账号 money=0，求购单从未支付，D-006）。
+        //    本地 beg_buy_order 表 2 行（76/77）均为取消终态 status=4，
+        //    公开墙只计 status=2 → 两个藏品的 total 都恒 0，与样本一致。
+        //    这同时是 status 口径的实证：取消单不能漏进公开墙。
         try {
-            // collection id=1 本地真实存在；计数走与 Controller 同一入口
+            // 分支 A：collection id=1（本地真实存在且不可求购），计数走与 Controller 同一入口
             $total    = MarketStats::begBuyOrderCount(1);
-            $envelope = MarketFormatter::begBuyList($total, 1, 10);
-            check('begBuyList', 'market_trade_begBuyList_161',
+            $envelope = MarketFormatter::begBuyList($total, 1, 10, false);
+            check('begBuyList#1', 'market_trade_begBuyList_161',
                 $envelope, 'data', [], 0, '订单信息');
 
             // 键序断言（顺序漂移前端不崩，但契约已变，必须归零）
             $expectedKeys = ['current_page', 'data', 'last_page', 'per_page', 'total'];
             if (array_keys($envelope) !== $expectedKeys) {
-                $results[] = 'begBuyList          [键序] 期望 ' . implode(',', $expectedKeys)
+                $results[] = 'begBuyList#1        [键序] 期望 ' . implode(',', $expectedKeys)
                     . ' 实际 ' . implode(',', array_keys($envelope));
+                $failed++;
+            }
+
+            // 分支 B：collection id=162（可求购，本地有 2 行取消单——必须被 status 过滤掉）
+            $total162    = MarketStats::begBuyOrderCount(162);
+            $envelope162 = MarketFormatter::begBuyList($total162, 1, 10, true);
+            check('begBuyList#162', 'market_trade_begBuyList_162',
+                $envelope162, 'data', [], 0, '订单信息');
+
+            // 分支 B 键序断言（total 开头，与分支 A 对置——「统一信封」冲动靠这对用例压住）
+            $expectedKeys162 = ['total', 'per_page', 'current_page', 'last_page', 'data'];
+            if (array_keys($envelope162) !== $expectedKeys162) {
+                $results[] = 'begBuyList#162       [键序] 期望 ' . implode(',', $expectedKeys162)
+                    . ' 实际 ' . implode(',', array_keys($envelope162));
                 $failed++;
             }
         } catch (\Throwable $e) {

@@ -153,49 +153,9 @@ class TradeController
         );
     }
 
-    public function begBuyOrderList()
-    {
-        [$user, $authErr] = $this->currentUser();
-        if ($authErr !== null) {
-            return $authErr;
-        }
-
-        ['page' => $p, 'size' => $s] = Request::page();
-        $total = 2;
-        $r = MockData::paginate(function ($i) {
-            return [
-                'id'         => $i + 1,
-                'collection_id' => $i + 201,
-                'name'       => '求购藏品 ' . ($i + 1),
-                'price'      => '299.00',
-                'num'        => 1,
-                'status'     => 1,
-                'status_text'=> '求购中',
-                'createtime' => time() - $i * 3600,
-            ];
-        }, $total, $p, $s);
-        return Response::page($r['list'], $r['total'], $s, $p);
-    }
-
-    public function begBuyOrderInfo()
-    {
-        [$user, $authErr] = $this->currentUser();
-        if ($authErr !== null) {
-            return $authErr;
-        }
-
-        return Response::ok([
-            'id'           => 1,
-            'collection_id'=> 201,
-            'name'         => '求购藏品 1',
-            'main_image'   => MockData::collection(0)['main_image'],
-            'price'        => '299.00',
-            'num'          => 1,
-            'status'       => 1,
-            'status_text'  => '求购中',
-            'createtime'   => time(),
-        ]);
-    }
+    // begBuyOrderList / begBuyOrderInfo 已于 v2.6 迁至 BegBuyController
+    // （原站真实端点 createBegBuyOrder/cancelBegBuyOrder 一并归入求购域，
+    //   契约依据 recon/raw5/ 实测非空样本）
 
     public function myOrderInfo()
     {

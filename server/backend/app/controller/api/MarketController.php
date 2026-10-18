@@ -155,13 +155,15 @@ class MarketController
     /**
      * POST /market/trade/begBuyList 求购列表【DB，v2.5 切】
      *
-     * 🔴 四层错误链 + 成功信封，全部来自 2026-10-18 复探原站实测
-     *    （raw4/market_trade_begBuyList_161.json 及现场 curl 比对）：
+     * 🔴 四层错误链 + 成功信封，全部来自原站实测：
      *      1. 无 token                    → 401「请登录后操作」
      *      2. collection_id 为空/0/缺参    → code=0「藏品ID不能为空」
+     *         （raw4/market_trade_begBuyList.json：缺参错误样本）
      *      3. sort 不在 {asc, desc}        → code=0「排序方式错误」（缺参也算错）
      *      4. collection_id 非整数/不存在  → code=0「藏品不存在」
-     *      5. 全部合法 → data = {current_page, data:[], last_page:0, per_page:0, total:0}
+     *      5. 全部合法 → 信封按**藏品可求购性**分两支（raw6 矩阵探测实证）：
+     *         不可求购（reprice_beg_max_limit ≤ 0）→ {current_page,data,last_page:0,per_page:0,total}
+     *         可求购  （reprice_beg_max_limit > 0）→ {total,per_page:50,current_page,last_page,data}
      *         msg="订单信息"
      *
      * 🔴 检查顺序是实测出来的，不是设计出来的：
@@ -173,11 +175,16 @@ class MarketController
      *    "0" / "" → 不能为空；"abc" / "1.5" / "-1" / "99999" → 藏品不存在
      *    即非整数字符串不走 int 强转（1.5 不会变成 1），直接判不存在。
      *
-     * 🔴 分页：page 缺省或 0 → current_page=1（Request::page() 已 clamp）；
-     *    每页条数空态不回显（per_page=0，请求带 list_rows=10 也一样）。
+     * 🔴 双分支的判别列是 reprice_beg_max_limit（与 createBegBuyOrder 第 6 步
+     *    「该藏品不可求购」同一个flag）：1/8/124/161/165（≤0）走旧信封，
+     *    162（=20000.00）走新信封。判别机制是从 6 个数据点归纳的，
+     *    原站代码不可见——证据链与残余不确定性见 MarketFormatter::begBuyList。
      *
-     * ⚠️ data 行结构无样本（全语料无非空求购单样本，兄弟端点 begBuyOrderList
-     *    同样 total=0），本地 beg_buy_order 表 0 行 → 恒 []，见 D-006。
+     * 🔴 分页：page 缺省或 0 → current_page=1；空态下请求 page=2 也不回显
+     *    （实测两个分支都回 1）。
+     *
+     * ⚠️ data 行结构无样本（非空求购单需要已支付，本账号 money=0，D-006），
+     *    本地 beg_buy_order 表 2 行均为取消终态 → total 恒 0，data 恒 []。
      *    前端 MarketGoodsList.vue 只读 d.data，空态走「暂无」分支，不会崩。
      */
     public function begBuyList()
@@ -202,7 +209,8 @@ class MarketController
         // 第 4 层：存在性。非整数字符串（"abc"/"1.5"）直接判不存在，
         // 不靠 MySQL 隐式转换（那等于把契约交给 DB 的cast 规则）
         $collectionId = preg_match('/^-?\d+$/', $rawCollectionId) ? (int) $rawCollectionId : -1;
-        if ($collectionId <= 0 || Collection::where('id', $collectionId)->count() === 0) {
+        $collection = $collectionId > 0 ? Collection::find($collectionId) : null;
+        if ($collection === null) {
             return Response::fail('藏品不存在');
         }
 
@@ -212,8 +220,12 @@ class MarketController
         // data 行结构无样本 → 恒 []（D-005 先例，见 MarketFormatter::begBuyList）
         $total = MarketStats::begBuyOrderCount($collectionId);
 
+        // 信封分支：可求购藏品走新信封（total 开头 + per_page=50），
+        // 判别列与建单第 6 步同一个 flag
+        $begBuyable = (float) (string) $collection['reprice_beg_max_limit'] > 0;
+
         return Response::ok(
-            MarketFormatter::begBuyList($total, $p, $s),
+            MarketFormatter::begBuyList($total, $p, $s, $begBuyable),
             Msg::BEGIN_BUY_ORDER
         );
     }

@@ -131,45 +131,67 @@ final class MarketFormatter
     }
 
     /**
-     * market/trade/begBuyList —— 求购列表分页信封
+     * market/trade/begBuyList —— 求购列表分页信封（双分支契约）
      *
-     * 实测结构（recon/raw4/market_trade_begBuyList_161.json，带 collection_id=161 + sort=desc）：
-     *   data = {
-     *     current_page: 1,     ← int
-     *     data: [],            ← 行结构无样本（见下方警告）
-     *     last_page: 0,        ← int，空态是 0 不是 1
-     *     per_page: 0,         ← 🔴 0！请求带了 list_rows=10 也不回显
-     *     total: 0             ← int
-     *   }
-     *   msg="订单信息"
+     * 🔴🔴 本端点有**两套信封**，按藏品是否可求购分流（2026-10-18 矩阵探测实证，
+     *      recon/raw6/ 共 10 个样本）：
      *
-     * 🔴🔴 本端点信封与 orderList **同 5 键不同序**，且空态值不同：
-     *       orderList    : {total, per_page, current_page, last_page, data}，per_page=15
-     *       begBuyList   : {current_page, data, last_page, per_page, total}，per_page=0
-     *       兄弟端点 begBuyOrderList（我的求购单）也是 {total,...} 序且 per_page=15 ——
-     *       同为 msg「订单信息」，三个端点三种信封。禁止用 Response::page() 复用：
-     *       它固定 total 开头，且 max(1,...) 会把 per_page/last_page 的 0 钳成 1，
-     *       静默改写契约（前端虽不读这两个键，但契约漂移必须归零）。
+     *    分支 A —— 不可求购藏品（reprice_beg_max_limit ≤ 0，如 1/8/124/161/165）：
+     *      data = {
+     *        current_page: 1,     ← int，空态恒 1（请求 page=2 也不回显，实测）
+     *        data: [],            ← 行结构无样本
+     *        last_page: 0,        ← int，空态是 0 不是 1
+     *        per_page: 0,         ← 🔴 0！请求带了 list_rows=10/15 也不回显
+     *        total: 0             ← int
+     *      }
+     *      该分支结构性恒空态：不可求购藏品在建单时就被「该藏品不可求购」拦住，
+     *      永远不可能有求购单（除非建单后改配置，边界不计）。
      *
-     * ⚠️ data 行结构无样本：全语料（raw~raw4 共 240+ 样本）没有任何一条
-     *    非空求购单样本——begBuyOrderList 同样 total=0。本地 beg_buy_order
-     *    表 0 行（无种子来源：求购写端点无成功样本，D-002）。
-     *    行结构待抓到非空样本后补齐；在那之前 data 恒 []，
-     *    禁止拿 orderList 的行结构（MockData::order）凑数——跨端点套用字段。
-     *    total 仍走真实计数查询，保证「有行必见数」，不会行在而数空。
+     *    分支 B —— 可求购藏品（reprice_beg_max_limit > 0，如 162）：
+     *      data = {
+     *        total: 0,            ← 🔴 total 开头！与分支 A 不同序
+     *        per_page: 50,        ← 🔴 恒 50，请求带 list_rows=10 也不理（实测）
+     *        current_page: 1,     ← 空态恒 1（page=2 不回显，实测）
+     *        last_page: 0,
+     *        data: []
+     *      }
+     *      total > 0 的行结构与分页值无样本（本账号 money=0 无法支付求购单，
+     *      D-006）：per_page 恒 50 / last_page=ceil(total/50) / current_page=page
+     *      是**按分支 B 已实证部分外推的最小假设**，拿到非空样本后须校正。
      *
-     * @param int $total 真实计数（MarketStats::begBuyOrderCount）
-     * @param int $page  当前页（Controller 已 clamp 到 ≥1，实测 page=0 时原站回 current_page=1）
-     * @param int $size  每页条数（仅 total>0 时参与计算；空态实测 per_page=0）
+     * 🔴 错误链两分支共享（实测）：无 token → 401；collection_id 空 → 藏品ID不能为空；
+     *    sort 非 asc/desc → 排序方式错误；藏品不存在 → 藏品不存在。
+     *    （raw4/market_trade_begBuyList.json 是缺参错误样本，_161.json 是分支 A 成功样本）
+     *
+     * ⚠️ 为什么不能合并成一个信封：「同 5 键不同序 + 不同值」正是两个端点的
+     *    区分点，compare() 只比字段集不比顺序，键序漂移不会被自动抓到——
+     *    两个分支的键序断言在 cases/MarketCases.php。
+     *
+     * @param int  $total     真实计数（MarketStats::begBuyOrderCount）
+     * @param int  $page      当前页（Controller 已 clamp 到 ≥1）
+     * @param int  $size      请求的每页条数（分支 A 忽略；分支 B 恒 50）
+     * @param bool $begBuyable 藏品是否可求购（collection.reprice_beg_max_limit > 0）
      */
-    public static function begBuyList(int $total, int $page, int $size): array
+    public static function begBuyList(int $total, int $page, int $size, bool $begBuyable = false): array
     {
+        if (!$begBuyable) {
+            // 分支 A：current_page 开头，per_page 恒 0（请求 list_rows 不回显）
+            return [
+                'current_page' => $total > 0 ? $page : 1,
+                'data'         => [],
+                'last_page'    => $total > 0 ? (int) ceil($total / $size) : 0,
+                'per_page'     => 0,
+                'total'        => $total,
+            ];
+        }
+
+        // 分支 B：total 开头，per_page 恒 50（list_rows 被忽略）
         return [
-            'current_page' => $page,
-            'data'         => [],
-            'last_page'    => $total > 0 ? (int) ceil($total / $size) : 0,
-            'per_page'     => $total > 0 ? $size : 0,
             'total'        => $total,
+            'per_page'     => 50,
+            'current_page' => $total > 0 ? $page : 1,
+            'last_page'    => $total > 0 ? (int) ceil($total / 50) : 0,
+            'data'         => [],
         ];
     }
 

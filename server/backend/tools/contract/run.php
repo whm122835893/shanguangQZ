@@ -35,14 +35,21 @@ use app\service\UserFormatter;
 use tools\contract\ContractDiff;
 
 // 样本目录：默认为 /workspace/recon/raw2，可用环境变量覆盖
-// 🔴 四批样本目录都要扫：不同端点散落在不同批次。
+// 🔴 五批样本目录都要扫：不同端点散落在不同批次。
 //    banner 的样本在 raw/（第一批），早期只读 raw2 会导致该用例静默跳过——
 //    静默跳过比失败更危险，所以 check() 里「跳过」也计为失败。
 //    raw4 是第四轮重抓（20 个 401 + 2 个 500），begBuyList 的成功样本在里面。
+//    raw5 是第五批（2026-10-18 求购域）：原站真实创建了两笔求购单
+//    （createBegBuyOrder/cancelBegBuyOrder/begBuyOrderList/Info 全链路），
+//    本目录不进扫描列表 = 求购域用例全部静默跳过。
+//    raw6 是第六批（begBuyList 双分支矩阵探测）：可求购/不可求购藏品
+//    两种信封 + page/sort 边界行为，共 10 个样本。
 $SAMPLE_DIR  = getenv('GANDART_SAMPLE_DIR') ?: '/workspace/recon/raw2';
 $EXTRA_DIR   = getenv('GANDART_SAMPLE_DIR3') ?: '/workspace/recon/raw3';
 $SAMPLE_DIR1 = getenv('GANDART_SAMPLE_DIR1') ?: '/workspace/recon/raw';
 $SAMPLE_DIR4 = getenv('GANDART_SAMPLE_DIR4') ?: '/workspace/recon/raw4';
+$SAMPLE_DIR5 = getenv('GANDART_SAMPLE_DIR5') ?: '/workspace/recon/raw5';
+$SAMPLE_DIR6 = getenv('GANDART_SAMPLE_DIR6') ?: '/workspace/recon/raw6';
 
 if (!is_dir($SAMPLE_DIR)) {
     fwrite(STDERR, "样本目录不存在：{$SAMPLE_DIR}\n");
@@ -53,8 +60,8 @@ if (!is_dir($SAMPLE_DIR)) {
 /** 读原站样本的 data 部分 */
 function raw(string $name): array
 {
-    global $SAMPLE_DIR, $EXTRA_DIR, $SAMPLE_DIR1, $SAMPLE_DIR4;
-    foreach ([$SAMPLE_DIR, $SAMPLE_DIR1, $EXTRA_DIR, $SAMPLE_DIR4] as $dir) {
+    global $SAMPLE_DIR, $EXTRA_DIR, $SAMPLE_DIR1, $SAMPLE_DIR4, $SAMPLE_DIR5, $SAMPLE_DIR6;
+    foreach ([$SAMPLE_DIR, $SAMPLE_DIR1, $EXTRA_DIR, $SAMPLE_DIR4, $SAMPLE_DIR5, $SAMPLE_DIR6] as $dir) {
         $f = $dir . '/' . $name . '.json';
         if (is_file($f)) {
             $j = json_decode((string) file_get_contents($f), true);

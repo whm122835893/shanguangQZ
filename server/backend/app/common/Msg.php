@@ -70,6 +70,12 @@ final class Msg
     public const CASH_LIST           = '提现列表';
     public const APPLY_INFO          = '申请信息';
 
+    // ---------- 求购域（v2.6，recon/raw5/ 实测 2026-10-18） ----------
+    public const CREATE_BEG_BUY_ORDER = '下单成功';
+    public const CANCEL_BEG_BUY_ORDER = '取消成功';
+    public const BEG_BUY_ORDER_LIST   = '订单信息';
+    public const BEG_BUY_ORDER_INFO   = '订单信息';
+
     // ---------- 市场域 ----------
     public const COLLECTION_DETAIL_TRADE = '藏品详情';
     public const COLLECTION_DETAIL_PREPAY = '相关金额';
@@ -119,5 +125,9 @@ final class Msg
         'market/Prepayment/collectionDetail' => self::COLLECTION_DETAIL_PREPAY,
         'market/trade/tradingInformation' => self::TRADING_INFORMATION,
         'market/trade/begBuyList'      => self::BEGIN_BUY_ORDER,
+        'market/trade/createBegBuyOrder' => self::CREATE_BEG_BUY_ORDER,
+        'market/trade/cancelBegBuyOrder' => self::CANCEL_BEG_BUY_ORDER,
+        'market/trade/begBuyOrderList' => self::BEG_BUY_ORDER_LIST,
+        'market/trade/begBuyOrderInfo' => self::BEG_BUY_ORDER_INFO,
     ];
 }
