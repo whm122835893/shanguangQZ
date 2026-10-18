@@ -239,6 +239,7 @@ CREATE TABLE `artel_order` (
   `crystal_type`       varchar(32)  NOT NULL DEFAULT 'crystal_no',
   `crystal_number`     varchar(32)  NOT NULL DEFAULT '0',
   `uc_ids`             varchar(255) DEFAULT NULL COMMENT '关联 user_collection.id，逗号分隔；可为空',
+  `collection_code`    varchar(64)  NOT NULL DEFAULT '' COMMENT '藏品编号，实测双形态："" -> []，否则 "1926/100000" -> ["1926/100000"]',
   `pay_channel`        varchar(32)  NOT NULL DEFAULT '' COMMENT 'huifu/sandpay/yifutong',
   `pay_time`           int unsigned NOT NULL DEFAULT 0,
   `createtime`         int unsigned NOT NULL DEFAULT 0,
