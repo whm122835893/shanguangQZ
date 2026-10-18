@@ -55,7 +55,59 @@ HTTP/2 握手在此网络下不通，`git fetch` 会卡 134 秒后失败。已�
 kill $(cat /tmp/srv.pid)
 ```
 
-### 2.3 `python3` 环境
+### 2.3 🔴🔴 推 GitHub：后端代码在 `server/backend/` 前缀下，不是仓库根目录
+
+**这是本项目最容易反复踩的坑，已犯两次。**
+
+远端 `whm122835893/shanguangQZ` 的目录约定：
+
+| 路径 | 内容 |
+|---|---|
+| `server/backend/**` | **ThinkPHP 后端全部代码**（87 个文件） |
+| `server/sql/**` | 数据库 DDL（7 个 .sql） |
+| `src/**` | Vue 3 前端 |
+| `docs/**` | 文档（api/ db/ decisions/） |
+| `public/**` | 静态资源 |
+| `tools/**` | recon 侦察脚本（根级，不属后端） |
+
+本地工作区 `/workspace/mock-server/mock-app` **没有** `server/backend/` 这层目录，
+它不是从远端克隆的。所以**本地相对路径 ≠ 远端路径**。
+
+早期推送脚本直接用本地相对路径写入 tree，结果连续两次把新文件推到**仓库根目录**：
+
+```
+app/common/Msg.php              ← 错在根目录
+app/model/UnionConfig.php       ← 错在根目录
+tools/contract/Cases.php        ← 错在根目录
+```
+
+而 `server/backend/` 下的主副本根本没有这些文件 —— **等于代码没进仓库**。
+
+**正确做法**（脚本已带`--prefix`，别去掉）：
+
+```bash
+python3 /workspace/recon/push-github.py \
+    /workspace/mock-server/mock-app main whm122835893/shanguangQZ <token> \
+    --prefix server/backend/
+
+python3 /workspace/recon/sync-backend-prefix.py <token>          # 全量归位 + 清理影子
+python3 /workspace/recon/verify-remote-sync.py <token>           # 只读比对，动手前必跑
+```
+
+**推完必须验证，不能只看「提交成功」**：
+
+```bash
+python3 /workspace/recon/verify-remote-sync.py <token>
+# 期望：SHA 一致 87 / 分叉 0 / 缺失 0 / 远端有本地无 0
+```
+
+「远端有本地无」若不为 0，说明远端有本地缺失的历史资产，
+此时**直接覆盖会丢代码**，必须先停下来查清。
+
+**连带坑**：沙箱到 `github.com:443` 的 git 协议不通，只能用
+Git Data API（blob -> tree -> commit -> ref）。`api.github.com` 通。
+
+### 2.4 `python3` 环境
 playwright 已装。超长脚本会**自动转后台任务**，需用 `TaskOutput` 取结果，别用 `sleep` 轮询。
 
 ---
