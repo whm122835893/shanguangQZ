@@ -189,14 +189,38 @@ path = path.split('?')[0]   // 关键
 
 ### 4.3 联调/断网校验四件套（可复跑）
 
-| 脚本 | 作用 | 当前结果 |
+| 脚本 | 作用 | 当前结果（2026-10-18 23:5x 实测） |
 |---|---|---|
-| `mock-server/check-coverage.py` | 前端 60 端点 vs Mock 67 路由 | **60/60 全覆盖** |
-| `mock-server/check-endpoints.py` | 逐端点发真实请求（63×2=126 次），验 `code=1`／信封四键／401 | **126 次零失败** |
+| `mock-server/check-coverage.py` | 前端 60 端点 vs Mock 72 路由 | **60/60 全覆盖** |
+| `mock-server/check-endpoints.py` | 逐端点发真实请求（63×2=126 次），验 `code=1`／信封四键／401 | **102 成功 / 24 参数守卫 / 0 失败** |
 | `mock-server/smoke.py` | 契约红线：信封、字段数、金额 string、布尔 int、token 双通道、分页三写法 | **14/14 通过** |
-| `mock-server/check-offline.py` | 断网核验：配置层/源码层/Mock 响应/图标落盘四处无原站引用 | **通过（162 个本地图标）** |
+| `mock-server/check-offline.py` | 断网核验：配置层/源码层/Mock 响应/图标落盘四处无原站引用 | **通过（213 个本地图标）** |
 
 浏览器级核验（dev 15 页 + 生产首页）：**外部请求 0 个，404 资源 0 个**。
+
+**🔴 四件套在 2026-10-18 被查出全部失效过（本轮已修）**——教训见 §4.9。
+跑之前先确认：Mock 在 `4200`、MariaDB 已起、seed 已灌（否则全是假红）。
+
+### 4.3.1 原站依赖的最终结论（断网实证）
+
+| 维度 | 状态 | 实证 |
+|---|---|---|
+| 业务 API | 零依赖 | Mock 72 路由全本地 DB 驱动；vite/server.cjs 默认代理本地 |
+| 二维码 | 零依赖 | `endroid/qr-code` 本地 SVG 生成 |
+| UI 图标 | 零依赖 | `public/static/` 213 个文件全部落盘 |
+| 商品/藏品图 | **一次性回源** | `app/controller/Image.php`：首次从 `img.gandart.shop` 抓取后落盘 `runtime/img-cache`，**二次零出网** |
+
+图片那一条是**唯一残留出网点**，已用 hosts 屏蔽 `img.gandart.shop` 做严格验证：
+屏蔽后重复请求同一张图仍返回 **HTTP 200 / 186426 字节 / 与首次字节完全一致**
+（命中缓存，未出网）。所以「可完全离线运行」的结论成立，
+**前提是图片至少被访问过一次**（缓存目录当前只有本次验证产生的 1 张）。
+
+要彻底预热就跑 `gandart-h5/tools/fetch-oss-images.sh`（该脚本**确实存在**，
+下载到 `public/static/oss/`；注意与 Image.php 的 `runtime/img-cache` 是两套
+落盘位置，前者供生产静态托管直出，后者供 Mock 图片服务按需缓存）。
+
+⚠️ 一处待办：`site_config` 表 0 行（原站 `getVersion` 样本为空，无数据来源），
+导致 `index/getConfig` 没有合法 key，只能验证「缺少key值」这条错误路径。
 
 ### 4.4 后端真实化（ThinkPHP + MariaDB，2026-10-17）
 
@@ -409,6 +433,38 @@ TradeController 的 `makeOrder` 零调用方（调用方全在 PayController）�
 
 **⚠️ 第三条**：事务回滚**不撤 auto_increment 计数**（78→79 实证）。
 契约用例按 id 定位种子行不受影响；手工验证时下一个单号从 79 起不是 bug。
+
+---
+
+### 4.9 四个核验脚本全部失效过（2026-10-18 23:5x 查出，已修）
+
+> **这是本轮最重要的发现**：四个脚本没有一个是「真的在核验」，全部在报假结果。
+> 而文档（旧 §4.3）里记的却是一水的绿——**绿的不是项目，是没人看过的旧数字**。
+
+| 脚本 | 假结果 | 根因 | 修法 |
+|---|---|---|---|
+| `check-coverage.py` | 「60 个未覆盖」 | 读 `route/mock.php`（0 条路由）；路由表早已迁到 `route/sub/route_api.php`（69 条）以避开 `Http::loadRoutes()` 的 glob 重复加载（见 §4.5） | 改读多个路由文件，并注释迁移原因 |
+| `check-offline.py` | `getUserInfo` 报 401 | 用假 token `?token=t` 打**鉴权**端点，必然 401；而 401 响应体没数据，「响应含不含原站域名」这条判据形同虚设 | `login_token()` 真登录取 token 再测（含 sleep 2 避限流） |
+| `check-endpoints.py` | 126 次全红「带 token 仍 401」 | 写死 `TOKEN = 'mock-4413...'`——`mock-` 前缀是 Mock **内存实现时期**的假 token，切真实鉴权（user_token 表 + Argon2id）后一律 401 | 真登录取 token；另给必填参数端点补真实参数（`begBuyList` 带 collection_id+sort 等），否则只验证到错误路径 |
+| `smoke.py` | 连不上 | `BASE` 写死 8000（某次临时实例），服务实为 4200 | 改 `MOCK_BASE` 环境变量，默认 4200 |
+
+**⚠️ 本条教训**：**核验脚本失效比没有核验更危险**。
+因为脚本一直在跑、一直在红，**红得久了就没人看了**——
+真正的回归（比如本轮 v2.6 改了 16 个文件）一旦出问题，会被淹没在同一片红里。
+这与 §4.5「限流配了但从不触发 = 假安全」是同一家族：
+**安全措施/核验措施必须实测验证它能触发，不能只看它存在。**
+
+**通用修法（可复用）**：脚本里凡涉及**会变的外部事实**——
+凭据、端口、文件路径、路由位置——一律不写死：
+- 凭据 → 真登录现取（不要 `token=t`、`mock-xxx`、写死密码）
+- 端口 → 环境变量 + 与其余脚本统一的默认值
+- 路径 → 指向真实生效的文件，并在注释里写明「为什么是这个路径」
+
+**顺带查出的数据缺口（已补）**：`affiche` 0→53、`blind_box` 0→1、
+`affiche_type` 0→5、`publisher` 1、`blind_box_batch` 1（补跑 `recon/seed.py`）。
+**两个 seed 脚本的分工**：`mock-app/seed.php` 只灌交易域（user/collection/
+artel_order/beg_buy_order…），`recon/seed.py` 灌内容域（affiche/blind_box/publisher…）——
+只跑前者会得到一个「能跑但首页没内容」的库。
 
 ---
 
