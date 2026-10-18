@@ -4,7 +4,7 @@
 > 每次 Phase 开始时把未决项复现到工作上下文最前面，逐条判断能否关闭。
 > 已关闭的项可升格为 ADR。
 
-**汇总：4 未决+ 0 已决**
+**汇总：5 未决 + 1 已决**
 
 ---
 
@@ -128,3 +128,46 @@ PHP 方法解析在运行期。`php -l` 只查语法；lint 不查跨类方法�
 复制两份 = 未来改下单逻辑要改两处，必然漏改。trait 是单一出处。
 注意 trait 内不能再 `use HasAuth`——与宿主类的 `use HasAuth` 构成
 同名私有方法冲突，PHP 直接 fatal。约定宿主自行提供 `currentUser()`。
+
+---
+
+## D-005 tradingInformation 统计语义与 list 行结构无样本
+
+| 项 | 内容 |
+|----|------|
+| Date | 2026-10-18 |
+| Source | Phase 3 · market/trade/tradingInformation 切 DB |
+| slug | `waiting-on-external-condition` |
+| Related Constraints | 样本账号无挂单/成交（全空态）；前端 SellInfo.vue 复刻注释的 list 行字段带省略号 |
+| Current Leaning | 结构契约严格按样本实现（9 键 + 双 null）；统计取「结构上有依据的最小过滤」 |
+| Blocked By | 账号需在原站有挂单/成交，才能抓到非空样本验证语义与行结构 |
+| Resolves When | 抓到 transaction_record_number>0 或 list 非空的样本 |
+| Status | **OPEN** |
+
+**背景**
+
+`recon/raw2/market_trade_tradinginformation.json` 是 B 类样本（成功但空）：
+9 个键的**类型契约**完整（6 int + list[] + 双 null），但所有值都是 0/空。
+`order/order/myConsignment` 样本同样空（total=0）。
+
+**已锁定的契约（无需样本也可确认）**
+
+- `today_highest_price` / `today_lowest_price` 无成交时是 **null 不是 0**：
+  给 0 前端会显示「今日最高 ￥0」的假成交。已由契约用例 + HTTP 验证双重锁定
+- 9 键集合与顺序，与样本逐字段一致
+
+**无法确认的三件事（等非空样本）**
+
+1. `transaction_record_number` 的成交态判定：哪些 `order_status` 算「成交」？
+   当前实现只按 `goods_id + goods_type` 过滤，**不过滤 status**——
+   漏算是可见 bug，错算是静默错数，两害取其轻
+2. `floor_price` 是否等于 `min(consignment.price where status=1)`？当前按此实现，
+   本地无寄售单恒 0，无法证伪
+3. `list` 行结构：前端复刻注释只列出 `{price, collection_code, total_num, time, ...}`
+   且带省略号。**在拿到完整行样本前，list 恒返回 []**，
+   禁止用 orderList 的行结构（MockData::order）凑数——那是跨端点套用字段
+
+**已做的处置**
+
+统计查询抽 `app/service/MarketStats.php`（Controller 与契约用例共用同一入口，
+用例测真实查询而非副本）；本地数据状态下所有统计恒等于样本值，且是真实查询结果。
