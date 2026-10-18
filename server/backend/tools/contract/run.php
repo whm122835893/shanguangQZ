@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * 契约回归测试 —— 四个已切 DB 驱动的端点
+ * 契约回归测试 —— 已切 DB/契约驱动的端点逐字段比对
  *
  * 用途：重构 Controller / 改 Formatter 之后，一条命令证明「行为没变」。
  * 这是防止静默漂移的唯一护栏 —— 本项目已抓到过 3 次（漏字段、
@@ -35,12 +35,14 @@ use app\service\UserFormatter;
 use tools\contract\ContractDiff;
 
 // 样本目录：默认为 /workspace/recon/raw2，可用环境变量覆盖
-// 🔴 三批样本目录都要扫：不同端点散落在不同批次。
+// 🔴 四批样本目录都要扫：不同端点散落在不同批次。
 //    banner 的样本在 raw/（第一批），早期只读 raw2 会导致该用例静默跳过——
 //    静默跳过比失败更危险，所以 check() 里「跳过」也计为失败。
+//    raw4 是第四轮重抓（20 个 401 + 2 个 500），begBuyList 的成功样本在里面。
 $SAMPLE_DIR  = getenv('GANDART_SAMPLE_DIR') ?: '/workspace/recon/raw2';
 $EXTRA_DIR   = getenv('GANDART_SAMPLE_DIR3') ?: '/workspace/recon/raw3';
 $SAMPLE_DIR1 = getenv('GANDART_SAMPLE_DIR1') ?: '/workspace/recon/raw';
+$SAMPLE_DIR4 = getenv('GANDART_SAMPLE_DIR4') ?: '/workspace/recon/raw4';
 
 if (!is_dir($SAMPLE_DIR)) {
     fwrite(STDERR, "样本目录不存在：{$SAMPLE_DIR}\n");
@@ -51,8 +53,8 @@ if (!is_dir($SAMPLE_DIR)) {
 /** 读原站样本的 data 部分 */
 function raw(string $name): array
 {
-    global $SAMPLE_DIR, $EXTRA_DIR, $SAMPLE_DIR1;
-    foreach ([$SAMPLE_DIR, $SAMPLE_DIR1, $EXTRA_DIR] as $dir) {
+    global $SAMPLE_DIR, $EXTRA_DIR, $SAMPLE_DIR1, $SAMPLE_DIR4;
+    foreach ([$SAMPLE_DIR, $SAMPLE_DIR1, $EXTRA_DIR, $SAMPLE_DIR4] as $dir) {
         $f = $dir . '/' . $name . '.json';
         if (is_file($f)) {
             $j = json_decode((string) file_get_contents($f), true);

@@ -8,6 +8,7 @@ use app\model\ConsignmentPriceRule;
 /**
  * 市场域出参契约 —— 对齐 market/trade/collectionDetail 与
  *                    market/Prepayment/collectionDetail 实测
+ *                    及 market/trade/begBuyList 分页信封
  *
  * 两个端点的实测结构：
  *   trade   data = {id, name, listimg, reprice_limit, reprice_min_limit,
@@ -126,6 +127,49 @@ final class MarketFormatter
             // null 保持 null：仅在确有成交时才可能是数字
             'today_highest_price'       => $stats['today_highest_price'] ?? null,
             'today_lowest_price'        => $stats['today_lowest_price'] ?? null,
+        ];
+    }
+
+    /**
+     * market/trade/begBuyList —— 求购列表分页信封
+     *
+     * 实测结构（recon/raw4/market_trade_begBuyList_161.json，带 collection_id=161 + sort=desc）：
+     *   data = {
+     *     current_page: 1,     ← int
+     *     data: [],            ← 行结构无样本（见下方警告）
+     *     last_page: 0,        ← int，空态是 0 不是 1
+     *     per_page: 0,         ← 🔴 0！请求带了 list_rows=10 也不回显
+     *     total: 0             ← int
+     *   }
+     *   msg="订单信息"
+     *
+     * 🔴🔴 本端点信封与 orderList **同 5 键不同序**，且空态值不同：
+     *       orderList    : {total, per_page, current_page, last_page, data}，per_page=15
+     *       begBuyList   : {current_page, data, last_page, per_page, total}，per_page=0
+     *       兄弟端点 begBuyOrderList（我的求购单）也是 {total,...} 序且 per_page=15 ——
+     *       同为 msg「订单信息」，三个端点三种信封。禁止用 Response::page() 复用：
+     *       它固定 total 开头，且 max(1,...) 会把 per_page/last_page 的 0 钳成 1，
+     *       静默改写契约（前端虽不读这两个键，但契约漂移必须归零）。
+     *
+     * ⚠️ data 行结构无样本：全语料（raw~raw4 共 240+ 样本）没有任何一条
+     *    非空求购单样本——begBuyOrderList 同样 total=0。本地 beg_buy_order
+     *    表 0 行（无种子来源：求购写端点无成功样本，D-002）。
+     *    行结构待抓到非空样本后补齐；在那之前 data 恒 []，
+     *    禁止拿 orderList 的行结构（MockData::order）凑数——跨端点套用字段。
+     *    total 仍走真实计数查询，保证「有行必见数」，不会行在而数空。
+     *
+     * @param int $total 真实计数（MarketStats::begBuyOrderCount）
+     * @param int $page  当前页（Controller 已 clamp 到 ≥1，实测 page=0 时原站回 current_page=1）
+     * @param int $size  每页条数（仅 total>0 时参与计算；空态实测 per_page=0）
+     */
+    public static function begBuyList(int $total, int $page, int $size): array
+    {
+        return [
+            'current_page' => $page,
+            'data'         => [],
+            'last_page'    => $total > 0 ? (int) ceil($total / $size) : 0,
+            'per_page'     => $total > 0 ? $size : 0,
+            'total'        => $total,
         ];
     }
 

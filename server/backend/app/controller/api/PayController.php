@@ -3,14 +3,17 @@ declare(strict_types=1);
 
 namespace app\controller\api;
 
+use app\model\VipOrder;
 use app\service\MockData;
+use app\service\PayFormatter;
+use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
 use app\controller\api\Concerns\HasAuth;
 use app\controller\api\Concerns\MakesOrders;
 
 /**
- * 支付域控制器（v2.3 从 Trade 拆分，v2.4 修 makeOrder 断裂）
+ * 支付域控制器（v2.3 从 Trade 拆分，v2.4 修 makeOrder 断裂，v2.5 切两个端点）
  *
  * 下单、批量支付、充值、开户、短信验证码
  *
@@ -20,9 +23,11 @@ use app\controller\api\Concerns\MakesOrders;
  *    现改为共用 Concerns\MakesOrders trait。
  *    教训：私有方法跨类不可见，PHP 运行期才报错，静态检查与 lint 都发现不了。
  *
- * 🔴 本文件全部端点当前为【MOCK】——用内存假数据补齐联调缺口，
- *    待拿到原站成功响应样本后逐个切换为 DB 驱动。
- *    切DB 时禁止凭端点名猜字段，必须以 recon/raw2/ 的实测样本为准。
+ * 🔴 v2.5 数据来源分三类，勿混淆：
+ *   【DB  】CreateVipOrder —— 有成功样本，真写 vip_order 表
+ *   【契约】batchPayOrder —— 有成功样本且经复探证明恒空态，无数据载体
+ *   【MOCK】其余端点（batchBuy/batchDoPay/Create*Order/Recharge...）
+ *          无成功样本（全在 C/D/F 类，见 D-002），保持内存假数据
  *
  * 🔐 鉴权统一走 HasAuth::currentUser()（sha256 + 有效期 + 账号状态），
  *    禁止用 Request::hasToken()（只判非空，是后门）。
@@ -94,6 +99,24 @@ class PayController
         ]);
     }
 
+    /**
+     * POST /order/order/batchPayOrder 批量下单列表【契约，v2.5 切】
+     *
+     * 实测（raw2/order_order_batchpayorder.json + 2026-10-18 复探）：
+     *   data = {batch_order_id: 0, data: []}，msg="暂无订单"；无 token → 401
+     *
+     * 🔴 为什么恒返回空态是**真实结论**而非占位符：
+     *    复探时原站账号下挂着 2 笔市场单 + 2 笔刚创建的 VIP 待付单，
+     *    本端点仍返回空态 —— 证明「批量」专指 batchBuy 产生的待付批量，
+     *    与普通订单、VIP 订单无关。本地 batchBuy 无持久化实现
+     *    （无成功样本，D-002），批量在本地永不可能存在。
+     *
+     * ⚠️ batch_order_id 是 int 0 不是 "0" —— 与 CreateVipOrder 的全 string
+     *    形态相反，勿「统一类型」。
+     *
+     * ⚠️ 非空态（有批量时）的行结构无样本，已登记 OPEN-DECISIONS D-006；
+     *    本地无批量载体，该分支不可达。
+     */
     public function batchPayOrder()
     {
         [$user, $authErr] = $this->currentUser();
@@ -101,14 +124,7 @@ class PayController
             return $authErr;
         }
 
-        ['page' => $p, 'size' => $s] = Request::page();
-        $total = 3;
-        $r = MockData::paginate(function ($i) {
-            $o         = MockData::order($i);
-            $o['state'] = '待支付';
-            return $o;
-        }, $total, $p, $s);
-        return Response::page($r['list'], $r['total'], $s, $p);
+        return Response::ok(PayFormatter::noBatchOrder(), Msg::BATCH_PAY_ORDER);
     }
 
     // ==================== 订单详情 ====================
@@ -138,9 +154,39 @@ class PayController
         return $this->makeOrder();
     }
 
+    /**
+     * POST /order/pay/CreateVipOrder 创建 VIP 会员订单【DB，v2.5 切】
+     *
+     * 实测（raw2/order_pay_createviporder.json + 2026-10-18 复探）：
+     *   入参：空 body 即成功（会员购买是无参数动作）
+     *   出参：data = {order_sn:"...28位...", order_id:"1", time:"300"}
+     *         —— 3 个字段**全是 string**，msg="下单成功"；无 token → 401
+     *
+     * 🔴 三个实测事实决定了实现形态：
+     *   1. 空 body 成功 → 不做任何参数校验（加了就是虚构契约）
+     *   2. 同账号连续下单 order_id "1"→"2" → 必须真写库，
+     *      内存实现会让两笔订单共用 id="1"，是静默造假
+     *   3. VIP 订单不在 artel_order（原站有 2 笔 VIP 单时 orderList total 仍为 2）
+     *      → 独立 vip_order 表，不蹭统一订单表
+     *
+     * 🔴 出参形状走 PayFormatter::vipOrderCreated()——
+     *    契约用例与Controller 共用同一入口，测的是真实代码路径。
+     *    早期走 makeOrder() 返回 {order_id:int, order_sn, pay_type:4, order_type:2}
+     *    （4 字段、类型全错），正是「凭端点名猜字段」的反面教材。
+     */
     public function createVipOrder()
     {
-        return $this->makeOrder();
+        [$user, $authErr] = $this->currentUser();
+        if ($authErr !== null) {
+            return $authErr;
+        }
+
+        $order = VipOrder::createForUser((int) $user['id']);
+
+        return Response::ok(
+            PayFormatter::vipOrderCreated($order),
+            Msg::CREATE_VIP_ORDER
+        );
     }
 
     public function paySmsCheck()

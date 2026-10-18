@@ -6,7 +6,8 @@ namespace app\service;
 use think\facade\Db;
 
 /**
- * 市场域统计查询 —— market/trade/tradingInformation 的取数层
+ * 市场域统计查询 —— market/trade/tradingInformation 与
+ *                   market/trade/begBuyList 的取数层
  *
  * 🔴 为什么单独抽服务而不写在 Controller 里：
  *    契约用例（tools/contract/Cases.php）必须测**真实查询链路**。
@@ -117,5 +118,29 @@ final class MarketStats
             'today_highest_price'       => null,
             'today_lowest_price'        => null,
         ];
+    }
+
+    /**
+     * 某藏品「求购中」的求购单数 —— begBuyList 的 total 来源
+     *
+     * 🔴 与 tradingStats() 里的 current_buying 是同一个查询口径
+     *    （collection_id + status=1），两个端点必须一致：
+     *    tradingInformation 显示「当前求购 N」，begBuyList 的 total
+     *    也应该是 N。若一边改口径一边不改，两个页面数字对不上，
+     *    而这种不一致不会有任何报错。
+     *
+     * ⚠️ 只返回计数不返回行：begBuyList 的 data 行结构无样本
+     *    （见 MarketFormatter::begBuyList 警告），恒 []。
+     *    total 走真实查询，保证「有行必见数」。
+     */
+    public static function begBuyOrderCount(int $collectionId): int
+    {
+        if ($collectionId <= 0) {
+            return 0;
+        }
+        return (int) Db::name('beg_buy_order')
+            ->where('collection_id', $collectionId)
+            ->where('status', self::STATUS_BEG_BUYING)
+            ->count();
     }
 }

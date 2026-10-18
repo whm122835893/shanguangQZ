@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\controller\api;
 
+use app\model\Collection;
 use app\service\MarketFormatter;
 use app\service\MarketStats;
 use app\service\MockData;
@@ -17,7 +18,7 @@ use app\controller\api\Concerns\HasAuth;
  * 挂单查询、藏品详情、行情、求购列表
  *
  * 🔴 数据来源分两类，勿混淆：
- *   【DB  】已按原站实测响应建表并灌入真实数据（tradingInformation）
+ *   【DB  】已按原站实测响应建表并灌入真实数据（tradingInformation / begBuyList）
  *   【MOCK】原站需登录或已下线的端点，暂用内存假数据
  *
  * 🔐 鉴权统一走 HasAuth::currentUser()，禁止只判断 token 非空。
@@ -151,19 +152,70 @@ class MarketController
         );
     }
 
-    /** POST /market/trade/begBuyList 求购列表 */
-
+    /**
+     * POST /market/trade/begBuyList 求购列表【DB，v2.5 切】
+     *
+     * 🔴 四层错误链 + 成功信封，全部来自 2026-10-18 复探原站实测
+     *    （raw4/market_trade_begBuyList_161.json 及现场 curl 比对）：
+     *      1. 无 token                    → 401「请登录后操作」
+     *      2. collection_id 为空/0/缺参    → code=0「藏品ID不能为空」
+     *      3. sort 不在 {asc, desc}        → code=0「排序方式错误」（缺参也算错）
+     *      4. collection_id 非整数/不存在  → code=0「藏品不存在」
+     *      5. 全部合法 → data = {current_page, data:[], last_page:0, per_page:0, total:0}
+     *         msg="订单信息"
+     *
+     * 🔴 检查顺序是实测出来的，不是设计出来的：
+     *    collection_id=-1（不存在）且无 sort → 原站返回「排序方式错误」
+     *    而非「藏品不存在」→ 存在性检查必须排在 sort **之后**。
+     *    按「先查存在再验排序」实现会静默返回不同的错误文案。
+     *
+     * 🔴 collection_id 判定细节（实测）：
+     *    "0" / "" → 不能为空；"abc" / "1.5" / "-1" / "99999" → 藏品不存在
+     *    即非整数字符串不走 int 强转（1.5 不会变成 1），直接判不存在。
+     *
+     * 🔴 分页：page 缺省或 0 → current_page=1（Request::page() 已 clamp）；
+     *    每页条数空态不回显（per_page=0，请求带 list_rows=10 也一样）。
+     *
+     * ⚠️ data 行结构无样本（全语料无非空求购单样本，兄弟端点 begBuyOrderList
+     *    同样 total=0），本地 beg_buy_order 表 0 行 → 恒 []，见 D-006。
+     *    前端 MarketGoodsList.vue 只读 d.data，空态走「暂无」分支，不会崩。
+     */
     public function begBuyList()
     {
+        [$user, $authErr] = $this->currentUser();
+        if ($authErr !== null) {
+            return $authErr;
+        }
+
+        // 第 2 层：collection_id 空判定（"0" 与原站一致按空处理）
+        $rawCollectionId = Request::str('collection_id');
+        if ($rawCollectionId === '' || $rawCollectionId === '0') {
+            return Response::fail('藏品ID不能为空');
+        }
+
+        // 第 3 层：sort 必须显式为 asc/desc（缺参即错，实测）
+        $sort = Request::str('sort');
+        if (!in_array($sort, ['asc', 'desc'], true)) {
+            return Response::fail('排序方式错误');
+        }
+
+        // 第 4 层：存在性。非整数字符串（"abc"/"1.5"）直接判不存在，
+        // 不靠 MySQL 隐式转换（那等于把契约交给 DB 的cast 规则）
+        $collectionId = preg_match('/^-?\d+$/', $rawCollectionId) ? (int) $rawCollectionId : -1;
+        if ($collectionId <= 0 || Collection::where('id', $collectionId)->count() === 0) {
+            return Response::fail('藏品不存在');
+        }
+
         ['page' => $p, 'size' => $s] = Request::page();
-        $total = 5;
-        $r = MockData::paginate(function ($i) {
-            $o = MockData::order(18700 + $i, 11, 1);
-            $o['number']      = 3;
-            $o['sale_number'] = $i;
-            return $o;
-        }, $total, $p, $s);
-        return Response::page($r['list'], $r['total'], $s, $p);
+
+        // total 走真实计数（与 tradingInformation 的 current_buying 同口径）；
+        // data 行结构无样本 → 恒 []（D-005 先例，见 MarketFormatter::begBuyList）
+        $total = MarketStats::begBuyOrderCount($collectionId);
+
+        return Response::ok(
+            MarketFormatter::begBuyList($total, $p, $s),
+            Msg::BEGIN_BUY_ORDER
+        );
     }
 
     // ==================== 交易下单 ====================

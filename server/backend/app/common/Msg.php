@@ -118,5 +118,6 @@ final class Msg
         'market/trade/collectionDetail' => self::COLLECTION_DETAIL_TRADE,
         'market/Prepayment/collectionDetail' => self::COLLECTION_DETAIL_PREPAY,
         'market/trade/tradingInformation' => self::TRADING_INFORMATION,
+        'market/trade/begBuyList'      => self::BEGIN_BUY_ORDER,
     ];
 }

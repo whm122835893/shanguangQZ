@@ -29,6 +29,7 @@ use app\controller\api\TradeController;
  * 数据来源标注：
  *   [DB]   已按原站实测响应建表并灌入真实数据
  *   [MOCK] 原站需登录或已下线，暂用内存假数据（详见各控制器注释）
+ *   [契约] 有实测成功样本且经复探证明恒空态，无数据载体（如 batchPayOrder）
  */
 
 // ==================== 首页 / 公告 ====================
@@ -72,7 +73,7 @@ Route::rule('market/market/getMarketList',                [MarketController::cla
 Route::rule('market/market/marketList',                   [MarketController::class, 'marketBoxList'],           'GET|POST'); // [MOCK]
 Route::rule('market/market/MarketDetail/ids/:id',         [MarketController::class, 'marketDetail'],            'GET|POST'); // [MOCK]
 Route::rule('market/trade/tradingInformation',            [MarketController::class, 'tradingInformation'],      'GET|POST'); // [DB]
-Route::rule('market/trade/begBuyList',                    [MarketController::class, 'begBuyList'],              'GET|POST'); // [MOCK]
+Route::rule('market/trade/begBuyList',                    [MarketController::class, 'begBuyList'],              'GET|POST'); // [DB]
 
 // ==================== 交易下单 ====================
 Route::rule('order/pay/fastOrderNew',     [OrderController::class, 'fastOrderNew'],     'GET|POST'); // [MOCK]
@@ -115,12 +116,12 @@ Route::rule('union/user/myunion',        [UserController::class, 'myUnion'],    
 Route::rule('order/pay/CreateOrder',                [PayController::class, 'createOrder'],              'GET|POST'); // [MOCK]
 Route::rule('order/pay/CreateMarketOrder',          [PayController::class, 'createMarketOrder'],        'GET|POST'); // [MOCK]
 Route::rule('order/pay/CreateMarketOrderRush',      [PayController::class, 'createMarketOrderRush'],    'GET|POST'); // [MOCK]
-Route::rule('order/pay/CreateVipOrder',             [PayController::class, 'createVipOrder'],           'GET|POST'); // [MOCK]
+Route::rule('order/pay/CreateVipOrder',             [PayController::class, 'createVipOrder'],           'GET|POST'); // [DB]
 Route::rule('order/pay/CreateHuifuAccountOrder',    [PayController::class, 'createHuifuAccountOrder'],  'GET|POST'); // [MOCK]
 Route::rule('order/pay/batchBuy',                   [PayController::class, 'batchBuy'],                 'GET|POST'); // [MOCK]
 Route::rule('order/pay/Recharge',                   [PayController::class, 'recharge'],                 'GET|POST'); // [MOCK]
 Route::rule('order/pay/paySmsCheck',                [PayController::class, 'paySmsCheck'],              'GET|POST'); // [MOCK]
-Route::rule('order/order/batchPayOrder',            [PayController::class, 'batchPayOrder'],            'GET|POST'); // [MOCK]
+Route::rule('order/order/batchPayOrder',            [PayController::class, 'batchPayOrder'],            'GET|POST'); // [契约]
 Route::rule('order/order/getMarketOrderDetails',    [TradeController::class, 'getMarketOrderDetails'],    'GET|POST'); // [MOCK]
 Route::rule('order/order/saleMarketOrderDetail',    [TradeController::class, 'saleMarketOrderDetail'],    'GET|POST'); // [MOCK]
 Route::rule('market/trade/entrust',                 [TradeController::class, 'entrust'],                  'GET|POST'); // [MOCK]
