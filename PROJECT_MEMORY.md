@@ -208,16 +208,25 @@ path = path.split('?')[0]   // 关键
 | 业务 API | 零依赖 | Mock 72 路由全本地 DB 驱动；vite/server.cjs 默认代理本地 |
 | 二维码 | 零依赖 | `endroid/qr-code` 本地 SVG 生成 |
 | UI 图标 | 零依赖 | `public/static/` 213 个文件全部落盘 |
-| 商品/藏品图 | **一次性回源** | `app/controller/Image.php`：首次从 `img.gandart.shop` 抓取后落盘 `runtime/img-cache`，**二次零出网** |
+| 商品/藏品图 | **一次性回源** | `app/controller/Image.php`：三级查找 `runtime/img-cache` → `public/static/oss/` → 回源抓取并落盘 |
 
-图片那一条是**唯一残留出网点**，已用 hosts 屏蔽 `img.gandart.shop` 做严格验证：
-屏蔽后重复请求同一张图仍返回 **HTTP 200 / 186426 字节 / 与首次字节完全一致**
-（命中缓存，未出网）。所以「可完全离线运行」的结论成立，
-**前提是图片至少被访问过一次**（缓存目录当前只有本次验证产生的 1 张）。
+图片那一条是**唯一残留出网点**。`Image.php` 的查找顺序（2026-10-19 加第二级）：
+
+1. `runtime/img-cache/`（按需抓取后落盘，同名 md5）
+2. **`public/static/oss/`（静态预下载资产，命中即零出网）**
+3. 回源 `img.gandart.shop` 抓一次并落盘到第 1 级
+
+**为什么加第 2 级**：前端仓库的 `public/static/oss/` 早有 37 张预下载图片，
+路径结构与 OSS 完全一致，此前 Mock 却完全没看它、直接回源——白出网。
+2026-10-19 实测：库内 25 条图片路径中 **14 条静态目录已覆盖**。
+
+**断网实证**（hosts 屏蔽 `img.gandart.shop`）：
+14 张静态命中全部返回真实图片字节；未覆盖的返回「图片不存在」JSON
+（证明屏蔽确实生效、走的是本地而非回源）；已缓存的 1 张同样命中。
+即 **25 张里 15 张现已零出网**，剩余 10 张需各回源一次。
 
 要彻底预热就跑 `gandart-h5/tools/fetch-oss-images.sh`（该脚本**确实存在**，
-下载到 `public/static/oss/`；注意与 Image.php 的 `runtime/img-cache` 是两套
-落盘位置，前者供生产静态托管直出，后者供 Mock 图片服务按需缓存）。
+下载到 `public/static/oss/`；但它只写死了 3 个路径，剩余的要按库内路径补）。
 
 ⚠️ 一处待办：`site_config` 表 0 行（原站 `getVersion` 样本为空，无数据来源），
 导致 `index/getConfig` 没有合法 key，只能验证「缺少key值」这条错误路径。
