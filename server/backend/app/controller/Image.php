@@ -80,6 +80,11 @@ class Image
                     ->contentType($this->mimeOf($path))
                     ->header(['Cache-Control' => 'public, max-age=2592000']);
             }
+            // 回源开关：GANDART_OSS_REMOTE=0 时不出网（离线/隔离环境安全）。
+            // 默认 1 保持「一次性引导」行为 —— 首次抓取后落缓存，之后不再出网。
+            if (env('GANDART_OSS_REMOTE', '1') === '0') {
+                return Response::fail('图片不存在（CDN 回源已关闭：GANDART_OSS_REMOTE=0）');
+            }
             $ok = $this->fetch($path, $file);
             if (!$ok) {
                 return Response::fail('图片不存在');

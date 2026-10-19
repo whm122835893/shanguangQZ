@@ -93,6 +93,12 @@ class UserCredential extends Model
      */
     public static function makeHash(string $plain): string
     {
+        // ⚠️ 部分 PHP 构建（如 8.5-dev 未装 sodium 扩展）没有编译 Argon2id，
+        //    此时 PASSWORD_ARGON2ID 未定义，直接传会 Fatal —— 降级 Bcrypt。
+        //    password_verify() 按哈希前缀自动识别算法，两种哈希都能校验。
+        if (!defined('PASSWORD_ARGON2ID')) {
+            return password_hash($plain, PASSWORD_BCRYPT);
+        }
         return password_hash($plain, PASSWORD_ARGON2ID, self::ARGON_OPTIONS);
     }
 

@@ -34,11 +34,14 @@ final class LocalSmsChannel implements SmsSender
     {
         // 🔴 只写日志，绝不返回值给 HTTP 层。
         //    日志文件在服务端本地，不对外暴露；且用 notice 级便于检索。
-        Log::notice('sms local channel', [
+        //    ⚠️ ThinkPHP 的 Log context 只做 {占位符} 替换，消息里没有占位符
+        //       时 context 会被整个丢弃 —— 因此必须把数据序列化进消息本身，
+        //       否则本地开发永远拿不到明文验证码（注册链路断死）。
+        Log::notice('sms local channel ' . json_encode([
             'mobile' => $mobile,
             'scene'  => $scene,
             'code'   => $code,   // 本地开发通道专用，生产通道不得有此项
-        ]);
+        ], JSON_UNESCAPED_UNICODE));
 
         return SmsResult::sentWithCode(self::CHANNEL, $code);
     }
