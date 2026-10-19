@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\api;
 
 use app\model\Collection;
+use app\model\BlindBox;
 use app\service\MarketFormatter;
 use app\service\MarketStats;
 use app\service\MockData;
@@ -11,6 +12,7 @@ use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
 use app\controller\api\Concerns\HasAuth;
+use think\facade\Db;
 
 /**
  * 市场域控制器（v2.3 从 Core 拆分，v2.4 tradingInformation 切 DB）
@@ -32,94 +34,238 @@ class MarketController
 {
     use HasAuth;
 
+    /**
+     * POST /market/market/getMarketGoodsListByGoodsId 【DB，v2.7 切】
+     *
+     * 前端 MarketGoodsList.vue 请求 {page, sort:'price', order:'asc', type, keyword, id=goods_id}
+     * 实测响应 data = {list:[{id, collection_code, price, status, ...}], last_page}
+     * list 行是**挂单**（有 collection_code 流通码），不是藏品聚合。
+     */
     public function marketGoodsListByGoodsId()
     {
         ['page' => $p, 'size' => $s] = Request::page();
-        $total = 4;
-        $r = MockData::paginate(function ($i) {
-            $g = MockData::marketGoods(155 + $i);
-            $g['key'] = 'mock-key-' . (155 + $i);
-            return $g;
-        }, $total, $p, $s);
+        $collectionId = Request::int('id');
+        if ($collectionId <= 0) {
+            return json(['code' => 1, 'msg' => '', 'time' => time(),
+                'data' => ['list' => [], 'last_page' => 0]]);
+        }
+
+        $query = Db::name('market_goods')->alias('mg')
+            ->join('collection c', 'c.id = mg.collection_id')
+            ->where('mg.collection_id', $collectionId)
+            ->where('mg.status', 1)
+            ->field('mg.id, mg.collection_code, mg.price, mg.num, mg.sold_num, mg.status, mg.createtime, c.name');
+        $total = (clone $query)->count();
+        $rows  = $query->order('mg.price', 'asc')->order('mg.id', 'asc')
+            ->page($p, $s)->select()->toArray();
+
+        $list = array_map(static fn($r) => [
+            'id'              => (int) $r['id'],
+            'name'            => (string) $r['name'],
+            'collection_id'   => $collectionId,
+            'collection_code' => (string) $r['collection_code'],
+            'price'           => number_format((float) $r['price'], 2, '.', ''),
+            'num'             => (int) $r['num'],
+            'sale_number'     => (int) $r['sold_num'],
+            'status'          => (int) $r['status'],
+            // detail.key 快捷下单凭据，与 marketGoodsDetail 的 key 同源（SPEC §4.2）
+            'key'             => 'mock-key-' . $collectionId,
+        ], $rows);
 
         return json([
             'code' => 1, 'msg' => '', 'time' => time(),
-            'data' => ['list' => $r['list'], 'total' => $r['total']],
+            'data' => [
+                'list'      => $list,
+                'total'     => $total,
+                'last_page' => (int) ceil($total / max($s, 1)),
+            ],
         ]);
     }
 
     /**
-     * POST /market/market/marketGoodsDetail
-     * 🔴 detail.key 是快捷下单必需（SPEC §4.2 检查清单第 1 项）
+     * POST /market/market/marketGoodsDetail 【DB，v2.7 切】
+     * 🔴 detail.key 是快捷下单必需（SPEC §4.2 检查清单第 1 项），
+     *    与 fastOrderNew 的 'mock-key-' . goods_id 校验规则同源。
+     * priceList 从 market_goods 实时聚合 —— 真实价格阶梯，不再是写死值。
      */
-
     public function marketGoodsDetail()
     {
-        $id   = Request::int('id', 155);
+        $id   = Request::int('id');
         $type = Request::int('type', 2);
-        $g    = MockData::marketGoods($id);
 
+        $row = Db::name('market_goods')->alias('mg')
+            ->join('collection c', 'c.id = mg.collection_id')
+            ->join('series s', 's.id = c.series_id', 'LEFT')
+            ->where('mg.id', $id)
+            ->field('mg.id, mg.collection_id, mg.price, mg.num, mg.sold_num, mg.status, c.name, c.listimg, c.main_image, IFNULL(s.name, "") AS series_name')
+            ->find();
+        if (!$row) {
+            return Response::fail('未找到合适商品');
+        }
+
+        // 该藏品全部在售价位（价格阶梯，低价在前）
+        $priceList = Db::name('market_goods')
+            ->where('collection_id', $row['collection_id'])
+            ->where('status', 1)
+            ->group('price')
+            ->field('price, SUM(num - sold_num) AS num')
+            ->order('price', 'asc')
+            ->select()->toArray();
+
+        $cid = (int) $row['collection_id'];
         return Response::ok([
-            'id'      => $g['id'],
-            'name'    => $g['name'],
-            'type'    => $type,
-            'series_name' => $g['series_name'],
-            'listimg' => $g['listimg'],
-            'main_image' => $g['main_image'],
-            'detail' => [
-                'key'     => 'mock-key-' . $id,
-                'price'   => '100.00',
-                'num'     => 1,
-                'goods_id'=> $id,
+            'id'          => (int) $row['id'],
+            'name'        => (string) $row['name'],
+            'type'        => $type,
+            'series_name' => (string) $row['series_name'],
+            'listimg'     => (string) $row['listimg'],
+            'main_image'  => (string) $row['main_image'],
+            'detail'      => [
+                'key'      => 'mock-key-' . $cid,
+                'price'    => number_format((float) $row['price'], 2, '.', ''),
+                'num'      => (int) $row['num'],
+                'goods_id' => $cid,
             ],
-            'priceList' => [
-                ['price' => '100.00', 'num' => 1],
-            ],
+            'priceList'   => array_map(static fn($r) => [
+                'price' => number_format((float) $r['price'], 2, '.', ''),
+                'num'   => (int) $r['num'],
+            ], $priceList),
         ]);
     }
 
-    /** POST /market/market/getMarketList 行情主列表 */
-
+    /**
+     * POST /market/market/getMarketList 行情主列表【DB，v2.7 切】
+     *
+     * 🔴 前端契约（Market.vue loadList）：寄售分支 res.data 是**数组**（非分页信封）。
+     * 每行是藏品维度的聚合行情：min_price=最低在售价，flux=在售流通量；
+     * 无在售挂单的藏品不出现（is_out 语义只对单藏品详情有意义）。
+     * series_id 过滤：0/缺省=「全部区」。
+     */
     public function marketList()
     {
-        ['page' => $p, 'size' => $s] = Request::page();
-        $total = 10;
-        $r = MockData::paginate(function ($i) {
-            $c = MockData::collection($i + 1);
-            // 对齐前端 MarketCard 契约：product 嵌套 + total_num/flux/min_price/is_out
-            $price = (string)(100 + $i * 10) . '.00';
-            return [
-                'id'            => $c['id'],
-                'goods_type'    => 2,
-                'is_out'        => 0,
-                'total_num'     => 100000,
-                'flux'          => 30000 + $i * 100,
-                'min_price'     => $price,
-                'price'         => $price,
-                'reprice_limit' => null,
-                'product'       => [
-                    'name'          => $c['name'],
-                    'listimg'       => $c['main_image'],
-                    'reprice_limit' => '2000.00',
-                ],
-            ];
-        }, $total, $p, $s);
-        return Response::page($r['list'], $r['total'], $s, $p);
+        $seriesId = Request::int('series_id', 0);
+
+        $query = Db::name('market_goods')->alias('mg')
+            ->join('collection c', 'c.id = mg.collection_id')
+            ->where('mg.status', 1)
+            ->where('c.is_show', 1);
+        if ($seriesId > 0) {
+            $query->where('c.series_id', $seriesId);
+        }
+        $rows = $query->group('mg.collection_id, c.id')
+            ->field('c.id, c.name, c.listimg, c.main_image, c.total_num, c.reprice_limit, MIN(mg.price) AS min_price, SUM(mg.num - mg.sold_num) AS flux')
+            ->order('min_price', 'asc')
+            ->select()->toArray();
+
+        $list = array_map(static fn($r) => [
+            'id'            => (int) $r['id'],
+            'goods_type'    => 2,
+            'is_out'        => 0,
+            'total_num'     => (int) $r['total_num'],
+            'flux'          => (int) $r['flux'],
+            'min_price'     => number_format((float) $r['min_price'], 2, '.', ''),
+            'price'         => number_format((float) $r['min_price'], 2, '.', ''),
+            'reprice_limit' => (int) $r['reprice_limit'] > 0
+                ? number_format((float) $r['reprice_limit'], 2, '.', '')
+                : null,
+            'product'       => [
+                'name'          => (string) $r['name'],
+                'listimg'       => (string) $r['listimg'],
+                'reprice_limit' => (int) $r['reprice_limit'] > 0
+                    ? number_format((float) $r['reprice_limit'], 2, '.', '')
+                    : null,
+            ],
+        ], $rows);
+
+        return Response::ok($list);
     }
 
-    /** POST /market/market/marketList 幸运盒行情 */
-
+    /**
+     * POST /market/market/marketList 幸运盒行情【DB，v2.7 切】
+     * 前端契约：res.data 是分页信封（loadList 取 d.data），行结构同寄售卡。
+     * 数据源 blind_box 表（is_show=1），is_out 对应 soldout。
+     */
     public function marketBoxList()
     {
-        return $this->marketList();
+        ['page' => $p, 'size' => $s] = Request::page();
+        $query = BlindBox::where('is_show', 1);
+        $total = (int) $query->count();
+        $rows  = $query->order('release_time', 'desc')->order('id', 'desc')
+            ->page($p, $s)->select()->toArray();
+
+        $list = array_map(static fn($b) => [
+            'id'            => (int) $b['id'],
+            'goods_type'    => 1,
+            'is_out'        => (int) $b['soldout'],
+            'total_num'     => (int) $b['total_num'],
+            'flux'          => (int) $b['flux'],
+            'min_price'     => number_format((float) $b['price'], 2, '.', ''),
+            'price'         => number_format((float) $b['price'], 2, '.', ''),
+            'reprice_limit' => null,
+            'product'       => [
+                'name'          => (string) $b['name'],
+                'listimg'       => (string) $b['listimg'],
+                'reprice_limit' => null,
+            ],
+        ], $rows);
+
+        return Response::page($list, $total, $s, $p);
     }
 
-    /** POST /market/market/MarketDetail/ids/{id} */
-
+    /**
+     * POST /market/market/MarketDetail/ids/{id} 【DB，v2.7 切】
+     * 挂单详情。前端 Detail.vue / OrderSubmit.vue 消费：
+     *   goods_name / price / product{main_image,listimg,total_num,flux,introduce_image,publisher.name} /
+     *   user_collection{collection_code,user_hash_text,rz_code} / series_name
+     * id 是挂单 id（market_goods.id）。
+     */
     public function marketDetail($id)
     {
-        $g = MockData::marketGoods((int) $id);
-        return Response::ok($g);
+        $row = Db::name('market_goods')->alias('mg')
+            ->join('collection c', 'c.id = mg.collection_id')
+            ->join('series s', 's.id = c.series_id', 'LEFT')
+            ->join('user u', 'u.id = mg.user_id', 'LEFT')
+            ->join('publisher p', 'p.id = c.issuer_id', 'LEFT')
+            ->where('mg.id', (int) $id)
+            ->field('mg.id, mg.collection_id, mg.collection_code, mg.price, mg.num, mg.sold_num, mg.status, c.name, c.main_image, c.listimg, c.total_num, IFNULL(s.name, "") AS series_name, u.username AS seller, IFNULL(p.name, "") AS publisher_name')
+            ->find();
+        if (!$row) {
+            return Response::fail('未找到合适商品');
+        }
+
+        // sum() 不接受表达式（实测 not support data:num - sold_num），用聚合查询
+        $fluxRow = Db::name('market_goods')
+            ->where('collection_id', $row['collection_id'])->where('status', 1)
+            ->field('SUM(num - sold_num) AS flux')->find();
+        $flux = (int) ($fluxRow['flux'] ?? 0);
+
+        // 卖家脱敏：13800138000 → 138****8000（原站 user_hash_text 是打码用户名）
+        $seller  = (string) ($row['seller'] ?? '');
+        $masked  = mb_strlen($seller) === 11
+            ? mb_substr($seller, 0, 3) . '****' . mb_substr($seller, -4)
+            : $seller;
+
+        return Response::ok([
+            'id'          => (int) $row['id'],
+            'goods_name'  => (string) $row['name'],
+            'name'        => (string) $row['name'],
+            'price'       => number_format((float) $row['price'], 2, '.', ''),
+            'series_name' => (string) $row['series_name'],
+            'product'     => [
+                'name'            => (string) $row['name'],
+                'main_image'      => (string) $row['main_image'],
+                'listimg'         => (string) $row['listimg'],
+                'total_num'       => (int) $row['total_num'],
+                'flux'            => $flux,
+                'introduce_image' => '',
+                'publisher'       => ['name' => (string) $row['publisher_name']],
+            ],
+            'user_collection' => [
+                'collection_code' => (string) $row['collection_code'],
+                'user_hash_text'  => $masked,
+                'rz_code'         => '',
+            ],
+        ]);
     }
 
     /**

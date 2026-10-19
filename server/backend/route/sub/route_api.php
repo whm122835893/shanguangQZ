@@ -38,7 +38,7 @@ use app\controller\api\TradeController;
 // ==================== 首页 / 公告 ====================
 Route::rule('index/afficheList',        [ContentController::class, 'afficheList'],      'GET|POST'); // [DB]
 Route::rule('index/affichetypelist',    [ContentController::class, 'afficheTypeList'],  'GET|POST'); // [DB]
-Route::rule('index/getSeries',          [ContentController::class, 'getSeries'],        'GET|POST'); // [MOCK] 原站实测空数组
+Route::rule('index/getSeries',          [ContentController::class, 'getSeries'],        'GET|POST'); // [DB] series 表
 Route::rule('banner/show/getBanner',      [ContentController::class, 'getBanner'],        'GET|POST'); // [DB]
 Route::rule('index/afficheDetail/ids/:id', [ContentController::class, 'afficheDetail'],  'GET|POST'); // [DB]
 
@@ -51,7 +51,7 @@ Route::rule('box/blind_box/list',         [ContentController::class, 'blindBoxLi
  * 原站前端误写为驼峰 CollectionList（404 死路由，SPEC 缺陷清单 #1），
  * 这里同时注册旧名并返回明确错误，避免再次踩坑。
  */
-Route::rule('box/collection/collection_list', [ContentController::class, 'collectionList'], 'GET|POST'); // [MOCK]
+Route::rule('box/collection/collection_list', [ContentController::class, 'collectionList'], 'GET|POST'); // [DB] collection 表分页
 Route::rule('box/collection/CollectionList', function () {
     return json([
         'code' => 0,
@@ -64,17 +64,17 @@ Route::rule('box/collection/CollectionList', function () {
 // ==================== 用户 ====================
 Route::rule('user/login',                [UserController::class, 'login'],            'GET|POST'); // [DB]
 Route::rule('user/getUserInfo',          [UserController::class, 'getUserInfo'],      'GET|POST'); // [DB]
-Route::rule('user/address_list',         [UserExtraController::class, 'addressList'],      'GET|POST'); // [MOCK]
+Route::rule('user/address_list',         [UserExtraController::class, 'addressList'],      'GET|POST'); // [MOCK] 无地址表/无样本
 Route::rule('user/newList',              [UserController::class, 'newList'],          'GET|POST'); // [DB]
 Route::rule('user_collection/user_collection/antMycollection', [UserController::class, 'myCollection'],    'GET|POST'); // [DB]
-Route::rule('user_collection/user_collection/getRecord',      [UserExtraController::class, 'collectionRecord'], 'GET|POST'); // [MOCK]
+Route::rule('user_collection/user_collection/getRecord',      [UserExtraController::class, 'collectionRecord'], 'GET|POST'); // [MOCK] 无前端调用/表空
 
 // ==================== 市场 / 行情 ====================
-Route::rule('market/market/getMarketGoodsListByGoodsId', [MarketController::class, 'marketGoodsListByGoodsId'], 'GET|POST'); // [MOCK]
-Route::rule('market/market/marketGoodsDetail',            [MarketController::class, 'marketGoodsDetail'],        'GET|POST'); // [MOCK]
-Route::rule('market/market/getMarketList',                [MarketController::class, 'marketList'],              'GET|POST'); // [MOCK]
-Route::rule('market/market/marketList',                   [MarketController::class, 'marketBoxList'],           'GET|POST'); // [MOCK]
-Route::rule('market/market/MarketDetail/ids/:id',         [MarketController::class, 'marketDetail'],            'GET|POST'); // [MOCK]
+Route::rule('market/market/getMarketGoodsListByGoodsId', [MarketController::class, 'marketGoodsListByGoodsId'], 'GET|POST'); // [DB]
+Route::rule('market/market/marketGoodsDetail',            [MarketController::class, 'marketGoodsDetail'],        'GET|POST'); // [DB]
+Route::rule('market/market/getMarketList',                [MarketController::class, 'marketList'],              'GET|POST'); // [DB]
+Route::rule('market/market/marketList',                   [MarketController::class, 'marketBoxList'],           'GET|POST'); // [DB]
+Route::rule('market/market/MarketDetail/ids/:id',         [MarketController::class, 'marketDetail'],            'GET|POST'); // [DB]
 Route::rule('market/trade/tradingInformation',            [MarketController::class, 'tradingInformation'],      'GET|POST'); // [DB]
 Route::rule('market/trade/begBuyList',                    [MarketController::class, 'begBuyList'],              'GET|POST'); // [DB]
 // 🔴 求购域（v2.6 切 DB）：真实端点名是 createBegBuyOrder/cancelBegBuyOrder，
@@ -85,15 +85,15 @@ Route::rule('market/trade/begBuyOrderList',               [BegBuyController::cla
 Route::rule('market/trade/begBuyOrderInfo',               [BegBuyController::class, 'begBuyOrderInfo'],     'GET|POST'); // [DB]
 
 // ==================== 交易下单 ====================
-Route::rule('order/pay/fastOrderNew',     [OrderController::class, 'fastOrderNew'],     'GET|POST'); // [MOCK]
+Route::rule('order/pay/fastOrderNew',     [OrderController::class, 'fastOrderNew'],     'GET|POST'); // [DB] 事务落 artel_order，key 与 marketGoodsDetail 同源
 Route::rule('order/pay/doPay',            [OrderController::class, 'doPay'],             'GET|POST'); // [DB] 网关抽象：通道未接入即拒绝，绝不假成功
 
 // ==================== 订单 ====================
 Route::rule('order/order/orderList',                       [OrderController::class, 'orderList'],         'GET|POST'); // [DB]
-Route::rule('order/order/orderDetail/ids/:id',             [OrderController::class, 'orderDetail'],       'GET|POST'); // [MOCK]
-Route::rule('order/order/MarketOrderDetail/ids/:id',       [OrderController::class, 'marketOrderDetail'], 'GET|POST'); // [MOCK]
-Route::rule('order/order/myConsignment',                   [OrderController::class, 'myConsignment'],     'GET|POST'); // [MOCK]
-Route::rule('market/Prepayment/myOrderlist',               [OrderController::class, 'myOrderlist'],       'GET|POST'); // [MOCK]
+Route::rule('order/order/orderDetail/ids/:id',             [OrderController::class, 'orderDetail'],       'GET|POST'); // [DB]
+Route::rule('order/order/MarketOrderDetail/ids/:id',       [OrderController::class, 'marketOrderDetail'], 'GET|POST'); // [DB]
+Route::rule('order/order/myConsignment',                   [OrderController::class, 'myConsignment'],     'GET|POST'); // [DB] order_type=8
+Route::rule('market/Prepayment/myOrderlist',               [OrderController::class, 'myOrderlist'],       'GET|POST'); // [DB] order_type=4 + status 筛选
 
 // ==================== 合成 ====================
 // 🔴 原站实测：synthesis/themeinfo、synthesis/material 均返回 code=401（需登录）
@@ -131,17 +131,17 @@ Route::rule('order/pay/batchBuy',                   [PayController::class, 'batc
 Route::rule('order/pay/Recharge',                   [PayController::class, 'recharge'],                 'GET|POST'); // [MOCK]
 Route::rule('order/pay/paySmsCheck',                [PayController::class, 'paySmsCheck'],              'GET|POST'); // [MOCK]
 Route::rule('order/order/batchPayOrder',            [PayController::class, 'batchPayOrder'],            'GET|POST'); // [契约]
-Route::rule('order/order/getMarketOrderDetails',    [TradeController::class, 'getMarketOrderDetails'],    'GET|POST'); // [MOCK]
-Route::rule('order/order/saleMarketOrderDetail',    [TradeController::class, 'saleMarketOrderDetail'],    'GET|POST'); // [MOCK]
-Route::rule('market/trade/entrust',                 [TradeController::class, 'entrust'],                  'GET|POST'); // [MOCK]
-Route::rule('market/trade/entrustOrderList',        [TradeController::class, 'entrustOrderList'],         'GET|POST'); // [MOCK]
+Route::rule('order/order/getMarketOrderDetails',    [TradeController::class, 'getMarketOrderDetails'],    'GET|POST'); // [DB] IDOR 归属校验
+Route::rule('order/order/saleMarketOrderDetail',    [TradeController::class, 'saleMarketOrderDetail'],    'GET|POST'); // [DB] IDOR + consign=1
+Route::rule('market/trade/entrust',                 [TradeController::class, 'entrust'],                  'GET|POST'); // [DB] 事务：market_goods + artel_order(4) + sell_num 占用
+Route::rule('market/trade/entrustOrderList',        [TradeController::class, 'entrustOrderList'],         'GET|POST'); // [DB]
 Route::rule('market/trade/collectionDetail',        [TradeController::class, 'tradeCollectionDetail'],   'GET|POST'); // [DB]
 Route::rule('market/Prepayment/collectionDetail',   [TradeController::class, 'prepaymentCollectionDetail'], 'GET|POST'); // [DB]
-Route::rule('market/Prepayment/myOrderInfo',        [TradeController::class, 'myOrderInfo'],              'GET|POST'); // [MOCK]
-Route::rule('user_collection/user_collection/detail',            [TradeController::class, 'collectionDetail'],  'GET|POST'); // [MOCK]
-Route::rule('user_collection/user_collection/show_resale_money', [TradeController::class, 'showResaleMoney'],   'GET|POST'); // [MOCK]
-Route::rule('union/index/logs',                     [UserController::class, 'unionLogs'],                'GET|POST'); // [MOCK]
-Route::rule('user/newrank1',                        [TradeController::class, 'newRank'],                  'GET|POST'); // [MOCK]
+Route::rule('market/Prepayment/myOrderInfo',        [TradeController::class, 'myOrderInfo'],              'GET|POST'); // [DB]
+Route::rule('user_collection/user_collection/detail',            [TradeController::class, 'collectionDetail'],  'GET|POST'); // [DB]
+Route::rule('user_collection/user_collection/show_resale_money', [TradeController::class, 'showResaleMoney'],   'GET|POST'); // [DB]
+Route::rule('union/index/logs',                     [UserController::class, 'unionLogs'],                'GET|POST'); // [MOCK] union 表空
+Route::rule('user/newrank1',                        [TradeController::class, 'newRank'],                  'GET|POST'); // [MOCK] 排行无数据载体
 Route::rule('index/getConfig',                      [TradeController::class, 'getConfig'],                'GET|POST'); // [DB] 已按原站补 key 校验
 Route::rule('sms/send',                             [SmsController::class, 'send'],                    'GET|POST'); // [DB] 随机码+HMAC存储+频率限制，响应绝不含明文码
 Route::rule('user/register',                        [AccountController::class, 'register'],                 'GET|POST'); // [DB] 真落库 user+user_credential(Argon2id)，验证码一次性消费

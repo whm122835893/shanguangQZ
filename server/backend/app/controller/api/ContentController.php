@@ -9,6 +9,8 @@ use app\model\AfficheType;
 use app\model\Banner;
 use app\model\Batch;
 use app\model\BlindBox;
+use app\model\Collection;
+use app\model\Series;
 use app\service\Formatter;
 use app\service\MockData;
 use app\model\Publisher;
@@ -83,13 +85,32 @@ class ContentController
     }
 
     /**
-     * GET /index/getSeries 藏品系列【MOCK】
-     * 原站实测 data = [] （空数组，站点当前无系列数据）。保持空数组语义。
+     * GET /index/getSeries 系列 Tab【DB，v2.7 切】
+     *
+     * 前端契约（Market.vue onMounted）：res.data 是数组，行用 series_id / name /
+     * is_def（默认选中项）渲染，switchSeries 后把 series_id 传给 getMarketList。
+     * 原站首个 Tab 是「全部区」（is_def=1，series_id=0 语义=不过滤）——
+     * 本地 series 表是真实系列全集，全部区由前端 series_id=0 表达，
+     * 因此这里把 sort 最小的系列标 is_def=1 作默认选中。
+     * type 参数（10/20）在原站区分两个分类域；本地表无此维度，暂不过滤。
      */
-
     public function getSeries()
     {
-        return Response::ok([]);
+        Request::int('type', 10);
+
+        $rows = Series::where('is_show', 1)
+            ->order('sort', 'asc')->order('id', 'asc')
+            ->select()->toArray();
+
+        $list = array_map(static function ($r, $i) {
+            return [
+                'series_id' => (int) $r['id'],
+                'name'      => (string) $r['name'],
+                'is_def'    => $i === 0 ? 1 : 0,
+            ];
+        }, $rows, array_keys($rows));
+
+        return Response::ok($list);
     }
 
     /**
@@ -216,11 +237,35 @@ class ContentController
      *    并保留旧名做重定向提示，避免前端再次踩坑。
      */
 
+    /**
+     * POST /box/collection/collection_list 藏品列表【DB，v2.7 切】
+     * 数据源 collection 表（is_show=1），行对齐 MockData::collection 的 10 字段契约，
+     * 附 series_name（前端列表页展示系列归属）。
+     */
     public function collectionList()
     {
         ['page' => $p, 'size' => $s] = Request::page();
-        $total = 6;
-        $r = MockData::paginate(fn($i) => MockData::collection($i + 1), $total, $p, $s);
-        return Response::page($r['list'], $r['total'], $s, $p);
+        $query = Collection::alias('c')
+            ->leftJoin('series s', 's.id = c.series_id')
+            ->where('c.is_show', 1);
+        $total = (int) (clone $query)->count();
+        $rows  = $query->field('c.*, IFNULL(s.name, "") AS series_name')
+            ->order('c.id', 'asc')->page($p, $s)->select()->toArray();
+
+        $list = array_map(static fn($r) => [
+            'id'                     => (int) $r['id'],
+            'name'                   => (string) $r['name'],
+            'main_image'             => (string) $r['main_image'],
+            'listimg'                => (string) $r['listimg'],
+            'collection_level'       => (string) $r['collection_level'],
+            'total_num_show'         => (int) $r['total_num_show'],
+            'total_num'              => (int) $r['total_num'],
+            'is_img_diff'            => (int) $r['is_img_diff'],
+            'unfreeze_collection_id' => (int) $r['unfreeze_collection_id'],
+            'freeze_time'            => (int) $r['freeze_time'],
+            'series_name'            => (string) $r['series_name'],
+        ], $rows);
+
+        return Response::page($list, $total, $s, $p);
     }
 }
