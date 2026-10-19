@@ -110,6 +110,10 @@ class Image
         if ($env !== '') {
             $dirs[] = rtrim($env, '/');
         }
+        /* runtime_path() = <项目>/server/backend/runtime/
+           往上 3 级即前端仓库根（<项目>/），public/static/oss 在其下。
+           不再硬编码 /workspace/gandart-h5 —— 项目位置一变就全部 404。 */
+        $dirs[] = dirname(rtrim(runtime_path(), '/'), 3) . '/public/static/oss';
         $dirs[] = '/workspace/gandart-h5/public/static/oss';
 
         foreach ($dirs as $d) {
