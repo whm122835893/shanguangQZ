@@ -22,7 +22,7 @@
  * 数据：后端只有 blind_box/list 列表接口，这里按 ids 从列表中取对应项。
  *      无 ids 或找不到时保持原站空数据态（￥ + undefined份）。
  */
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getBoxList } from '@/api'
 import { oss } from '@/api/http'
@@ -49,6 +49,33 @@ async function load() {
 onMounted(load)
 /* hash 路由同页 query 变化时组件复用，onMounted 不会重跑 —— 必须监听 */
 watch(() => route.query.ids, load)
+
+/* 发售状态：只按 soldout 判断（对齐首页卡片「立即购买/已售罄」逻辑） */
+const canBuy = computed(() => {
+  const g = goods.value
+  if (!g) return false
+  return Number(g.soldout) !== 1
+})
+const btnText = computed(() => {
+  const g = goods.value
+  if (!g) return '加载中'
+  return Number(g.soldout) === 1 ? '已售罄' : '立即购买'
+})
+
+/* 原站「立即购买」→ 确认订单页（参数风格对齐 market/Detail.vue） */
+function goBuy() {
+  if (!canBuy.value || !goods.value) return
+  const g = goods.value
+  router.push({
+    path: '/pages/order/orderSubmit',
+    query: {
+      id: String(g.id),
+      goods_name: g.name,
+      price: g.price,
+      cover: g.main_image || g.listimg
+    }
+  })
+}
 </script>
 
 <template>
@@ -79,6 +106,14 @@ watch(() => route.query.ids, load)
         <div v-else class="desc-body"></div>
       </div>
       <div class="blank-row"></div>
+    </div>
+
+    <!-- 底部购买操作栏（原站为深色底 + 红色大圆角按钮） -->
+    <div class="bb-action">
+      <div class="ba-price">
+        <span class="ba-yen">￥</span><span v-if="goods">{{ goods.price }}</span>
+      </div>
+      <div class="ba-btn" :class="{ 'ba-btn--off': !canBuy }" @click="goBuy">{{ btnText }}</div>
     </div>
   </div>
 </template>
@@ -221,5 +256,50 @@ watch(() => route.query.ids, load)
   height: 32px;
   padding: 16px 0;
   box-sizing: border-box;
+}
+
+/* ---------- 底部购买操作栏 ---------- */
+.bb-action {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 0;
+  width: 100%;
+  max-width: 750px;
+  height: 80px;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  box-sizing: border-box;
+  z-index: 100;
+}
+.ba-price {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 25px;
+  color: #fff;
+}
+.ba-yen {
+  font-size: 14px;
+  color: var(--gd-primary);
+  margin-right: 1px;
+}
+.ba-btn {
+  width: 220px;
+  height: 47px;
+  background: var(--gd-primary);
+  border-radius: 23px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ba-btn--off {
+  background: rgb(85, 85, 85);
+  color: rgb(153, 153, 153);
 }
 </style>
