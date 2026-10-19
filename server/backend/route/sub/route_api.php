@@ -64,6 +64,8 @@ Route::rule('box/collection/CollectionList', function () {
 // ==================== 用户 ====================
 Route::rule('user/login',                [UserController::class, 'login'],            'GET|POST'); // [DB]
 Route::rule('user/getUserInfo',          [UserController::class, 'getUserInfo'],      'GET|POST'); // [DB]
+// 🔴 新增端点（原站实名在 App 内完成）：三态分离（脱敏/密文/指纹），红线全在 RealnameService
+Route::rule('user/realname/submit',      [UserController::class, 'realname'],         'GET|POST'); // [新增]
 Route::rule('user/address_list',         [UserExtraController::class, 'addressList'],      'GET|POST'); // [MOCK] 无地址表/无样本
 Route::rule('user/newList',              [UserController::class, 'newList'],          'GET|POST'); // [DB]
 Route::rule('user_collection/user_collection/antMycollection', [UserController::class, 'myCollection'],    'GET|POST'); // [DB]
@@ -128,7 +130,9 @@ Route::rule('order/pay/CreateMarketOrderRush',      [PayOrderController::class, 
 Route::rule('order/pay/CreateVipOrder',             [PayController::class, 'createVipOrder'],           'GET|POST'); // [DB]
 Route::rule('order/pay/CreateHuifuAccountOrder',    [PayOrderController::class, 'createHuifuAccountOrder'],  'GET|POST'); // [契约] 原站实测：本账号已付开户费
 Route::rule('order/pay/batchBuy',                   [PayController::class, 'batchBuy'],                 'GET|POST'); // [MOCK]
-Route::rule('order/pay/Recharge',                   [PayController::class, 'recharge'],                 'GET|POST'); // [MOCK]
+Route::rule('order/pay/Recharge',                   [PayController::class, 'recharge'],                 'GET|POST'); // [DB] v3.0 真落 recharge_order，入账走回调
+// 🔴 新增端点：渠道异步回调（外部资金唯一入口，HMAC 验签 + 幂等结算）
+Route::rule('order/pay/notify/:code',               [\app\controller\api\NotifyController::class, 'notify'], 'POST'); // [新增]
 Route::rule('order/pay/paySmsCheck',                [PayController::class, 'paySmsCheck'],              'GET|POST'); // [MOCK]
 Route::rule('order/order/batchPayOrder',            [PayController::class, 'batchPayOrder'],            'GET|POST'); // [契约]
 Route::rule('order/order/getMarketOrderDetails',    [TradeController::class, 'getMarketOrderDetails'],    'GET|POST'); // [DB] IDOR 归属校验

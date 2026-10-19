@@ -216,14 +216,38 @@ class PayController
             return $authErr;
         }
 
-        $money = Request::str('money');
-        if ($money === '' || (float) $money <= 0) {
+        // 🔴 v3.0 支付闭环：此前只回显假单号（无持久化、无资金流），现真落 recharge_order：
+        //    金额服务端定格式（不信 float），单据待支付（status=1），
+        //    入账只能由 /order/pay/notify 回调经 SettlementService 完成。
+        $money = trim(Request::str('money'));
+        if (!preg_match('/^\d+(\.\d{1,2})?$/', $money)) {
             return Response::fail('充值金额不能为空');
         }
+        $amount = bcadd($money, '0', 2);
+        if (bccomp($amount, '0', 2) <= 0) {
+            return Response::fail('充值金额必须大于 0');
+        }
+
+        $orderSn = 'RC' . date('YmdHis') . random_int(100000, 999999);
+        try {
+            \think\facade\Db::name('recharge_order')->insert([
+                'order_sn'   => $orderSn,
+                'user_id'    => (int) $user['id'],
+                'amount'     => $amount,
+                'status'     => 1,
+                'pay_way'    => Request::str('pay_way'),
+                'createtime' => time(),
+                'updatetime' => time(),
+            ]);
+        } catch (\Throwable $e) {
+            return Response::fail('充值下单失败，请稍后重试');
+        }
+
+        // 契约形状不变：{order_sn, money(string), pay_type:4}（原站实测）
         return Response::ok([
-            'order_sn'   => 'RC' . date('YmdHis') . random_int(100000, 999999),
-            'money'      => number_format((float) $money, 2, '.', ''), // string
-            'pay_type'   => 4,
+            'order_sn' => $orderSn,
+            'money'    => $amount,     // string 两位小数
+            'pay_type' => 4,
         ]);
     }
 }

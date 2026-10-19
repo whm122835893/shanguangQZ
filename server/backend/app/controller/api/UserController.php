@@ -11,6 +11,8 @@ use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
 use app\service\LoginFormatter;
+use app\service\RealnameException;
+use app\service\RealnameService;
 use app\service\TradeFormatter;
 use app\service\UnionFormatter;
 use app\model\User;
@@ -149,6 +151,35 @@ class UserController
             return $deny;
         }
         return Response::ok(TradeFormatter::userInfo($user), Msg::USER_INFO);
+    }
+
+    /**
+     * POST /user/realname/submit 实名认证提交【新增】
+     *
+     * 原站无此端点（实名在原 App 内完成），本项目新增的补齐端点：
+     *   - 三态分离落库：脱敏值（展示契约不变）+ AES-256-GCM 密文 + HMAC 指纹
+     *   - 一证一号 / 已实名禁换证 / 年满 18 周岁，红线全部在 RealnameService
+     * 响应仅回脱敏值，明文与密文绝不出接口。
+     */
+    public function realname()
+    {
+        [$user, $deny] = $this->currentUser();
+        if ($deny !== null) {
+            return $deny;
+        }
+
+        $realName = Request::str('real_name');
+        $idCard   = Request::str('id_card');
+
+        try {
+            $masked = RealnameService::submit((int) $user['id'], $realName, $idCard);
+        } catch (RealnameException $e) {
+            Audit::write('realname_submit', (int) $user['id'], ['result' => 'reject', 'reason' => $e->getMessage()], false);
+            return Response::fail($e->getMessage());
+        }
+
+        Audit::write('realname_submit', (int) $user['id'], ['result' => 'ok'], true);
+        return Response::ok($masked, '实名提交成功');
     }
 
     /** POST /user_collection/user_collection/antMycollection 我的藏品【DB】 */

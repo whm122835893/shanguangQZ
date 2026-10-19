@@ -784,3 +784,48 @@ return Response::ok(['mobile'=>$mobile,'event'=>$event,'expire'=>60,'code'=>'123
 3. 其余代码不动
 
 生产环境还需在 `.env` 配 `SMS_CHANNEL=<服务商>` 与 `SMS_HMAC_KEY`（32 字节随机 hex）。
+
+## P0 缺口补齐：钱包/实名/支付闭环/管理端（2026-10-19）
+
+按《司南2.0项目文档》补齐 P0 四域，全部 TDD（先契约测试后实现）：
+
+### 四域落地
+
+| 域 | 迁移 | 服务 | 测试（全绿） |
+|---|---|---|---|
+| 钱包账本 | `sql/10-wallet.sql` | `WalletService`（账本唯一入口+恒等式审计） | `wallet_test.php` 30 项 |
+| 实名认证 | `sql/11-realname.sql` | `RealnameService`（三态分离：脱敏/密文AES-GCM/指纹HMAC 一证一号） | `realname_test.php` 21 项 |
+| 支付闭环 | `sql/12-payment.sql` | `SettlementService`（幂等结算）+ `PayNotify`（HMAC验签）+ `NotifyController` | `payment_test.php` 28 项 |
+| 管理端 | `sql/13-admin.sql` | `AdminAuthService`（Argon2id+单会话12h+防枚举）+ `AdminController` | `admin_test.php` 15 项 + `admin_e2e.sh` 13 项 HTTP 全链路 |
+
+### 管理端接入要点
+
+- 路由在 `route/sub/route_admin.php`（无 `/api` 前缀），由 `route/app.php` 显式 require；
+  `route/sub/` 下文件不会被 glob 自动加载，必须 require。
+- token 走 header `X-Admin-Token`；创建管理员唯一入口 `php tools/create-admin.php <u> <p>`，
+  密码 ≥10 位含字母数字，库内不允许默认弱口令。
+- `affiche` 表无 `updatetime` 列（原站遗留），toggle 保存需按表分流。
+- `affiche_type` 字典原为空表且原站样本遗失，`01-schema.sql` 已补 5 条默认字典
+  （前端仅依赖 `{id,name}` 通用结构，可在库内增删）。
+
+### 🔴 数据事故记录（自省）
+
+重导 `01-schema.sql` 做 E2E 排障时，其 `DROP TABLE` 清掉了 content 域
+（affiche/series/blind_box/publisher/banner）的原站样本数据，而
+`recon/raw2/` 样本与 `recon/seed.py` 已随旧工作区丢失，**无法恢复**。
+P0 四域表（10-13 号迁移新增）不受影响，user/artel_order 等业务数据完好。
+教训：**01-schema.sql 含 DROP TABLE，任何场景下都不要对已有数据的库重导**；
+补种子应单独 INSERT 或用 `--if-not-exists` 风格迁移。
+
+### 遗留（P1）
+
+- ~~content 域样本数据需重新抓原站灌回~~ → 已用演示数据填充（`bash tools/seed-demo.sh`，
+  幂等可重跑；banner/公告走管理端接口灌入，藏品/系列/挂单走 SQL；图片全部命中
+  `public/static/oss/` 预下载资产零出网。演示管理员：`demo_admin / DemoAdmin#2026`）
+- `tools/contract/run.php`（本地输出 vs 原站实测比对）依赖样本目录，样本丢失后不可用，
+  恢复样本后需 `GANDART_SAMPLE_DIR=... php tools/contract/run.php` 重跑
+- `POST /api/system/ping` 返回 HTML 404 页为既有行为（mock.php 用 `Route::get` 只注册 GET），
+  健康检查统一用 GET
+- 管理端无「新建藏品」接口（P0 刻意最小集），演示藏品类数据目前靠 SQL 直插
+  （见 `tools/seed-demo.sh` §5）；P1 若开放运营发藏，需补 `admin/collection/save`
+  并带发行量守恒校验

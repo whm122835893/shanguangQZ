@@ -50,6 +50,15 @@ CREATE TABLE `affiche_type` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公告类型字典';
 
+-- 运营字典：原站样本遗失（实测为 5 条），此处为默认字典；
+-- 前端仅依赖 {id,name} 通用结构，可在库内增删。
+INSERT INTO `affiche_type` (`id`, `name`) VALUES
+  (1, '平台公告'),
+  (2, '活动福利'),
+  (3, '发售上新'),
+  (4, '新手教程'),
+  (5, '系统维护');
+
 -- ------------------------------------------------------------
 -- 发行方（盲盒嵌套对象 publisher 拆表）
 -- 实测：{"name":"闪光","company_logo":"/uploads/20240118/xxx.jpg"}

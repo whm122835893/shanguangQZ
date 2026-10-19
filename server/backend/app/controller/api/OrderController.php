@@ -6,6 +6,7 @@ namespace app\controller\api;
 use app\model\ArtelOrder;
 use app\service\Gateways;
 use app\service\MockData;
+use app\service\SettlementService;
 use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
@@ -162,12 +163,10 @@ class OrderController
             return Response::fail($result->msg);
         }
 
-        // 以下分支仅在真实通道确认收款后可达
-        $order->save([
-            'pay_time'    => time(),
-            'pay_channel' => $payWay,
-            'updatetime'  => time(),
-        ]);
+        // 🔴 v3.0 支付闭环：确认收款后立即结算（订单置付 + 挂单核销 + 卖家入账）。
+        //    settleOrder 幂等：外部渠道若再发异步回调（同 pay_no）会被重放护栏静默放行，
+        //    不会双入账；pay_no 不一致的伪造回调会被拒绝。
+        SettlementService::settleOrder($orderSn, $result->payNo, $payWay);
 
         return Response::ok(['pay_no' => $result->payNo]);
     }
