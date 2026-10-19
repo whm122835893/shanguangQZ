@@ -3,6 +3,11 @@ declare(strict_types=1);
 
 use think\facade\Route;
 use app\controller\admin\AdminController;
+use app\controller\admin\StatsController;
+use app\controller\admin\UserController;
+use app\controller\admin\OrderController;
+use app\controller\admin\WalletController;
+use app\controller\admin\RealnameController;
 
 /**
  * 管理端路由（P0 最小集）—— 无 /api 前缀，与 C 端完全隔离
@@ -44,3 +49,21 @@ Route::rule('admin/lottery/toggle', [AdminController::class, 'lotteryToggle'],  
 Route::rule('admin/synthesis/theme/list', [AdminController::class, 'synthesisThemeList'],  'GET|POST');
 Route::rule('admin/synthesis/theme/save', [AdminController::class, 'synthesisThemeSave'],  'POST');
 Route::rule('admin/synthesis/plan/save',  [AdminController::class, 'synthesisPlanSave'],  'POST');
+
+// ==================== 仪表盘（v3.1 P1） ====================
+Route::rule('admin/dashboard', [StatsController::class, 'dashboard'], 'GET|POST');
+
+// ==================== 用户治理（v3.1 P1） ====================
+Route::rule('admin/user/list',   [UserController::class, 'list'],    'GET|POST');
+Route::rule('admin/user/detail', [UserController::class, 'detail'],  'GET|POST');
+Route::rule('admin/user/freeze', [UserController::class, 'freeze'],  'POST');
+
+// ==================== 订单查询（v3.1 P1，只读） ====================
+Route::rule('admin/order/list', [OrderController::class, 'list'], 'GET|POST');
+
+// ==================== 钱包核对（v3.1 P1，只读） ====================
+Route::rule('admin/wallet/transactions', [WalletController::class, 'transactions'], 'GET|POST');
+Route::rule('admin/wallet/summary',      [WalletController::class, 'summary'],      'GET|POST');
+
+// ==================== 实名复核（v3.1 P1，只读） ====================
+Route::rule('admin/realname/list', [RealnameController::class, 'list'], 'GET|POST');

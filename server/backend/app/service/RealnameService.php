@@ -160,8 +160,9 @@ final class RealnameService
     }
 
     // ==================== 脱敏（契约格式对齐原站实测 "520******838" / "王*绵"） ====================
+    // v3.1 改 public：管理端 RealnameController 复用同一契约格式
 
-    private static function maskName(string $name): string
+    public static function maskName(string $name): string
     {
         $len = mb_strlen($name);
         if ($len < 2) {
@@ -172,7 +173,7 @@ final class RealnameService
             : mb_substr($name, 0, 1) . str_repeat('*', $len - 2) . mb_substr($name, -1);
     }
 
-    private static function maskIdCard(string $id): string
+    public static function maskIdCard(string $id): string
     {
         return substr($id, 0, 3) . '******' . substr($id, -3);
     }

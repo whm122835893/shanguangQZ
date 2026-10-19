@@ -28,6 +28,41 @@ final class Audit
     ];
 
     /**
+     * 管理端动作落库审计（v3.1）：audit_log 表可查询、可复核
+     *
+     * 与 write()（日志文件）并行使用：管理端 mutation 必须 db()，
+     * 普通安全事件继续 write()。
+     *
+     * @param string $action   动作名，如 admin_user_freeze
+     * @param int    $adminId  操作管理员 ID
+     * @param int    $targetId 业务对象 ID（如被冻结的用户）
+     * @param array  $detail   附加信息，自动剔除敏感字段
+     */
+    public static function db(string $action, int $adminId, int $targetId, array $detail = []): void
+    {
+        try {
+            $admin = \think\facade\Db::name('admin_user')->where('id', $adminId)->value('username');
+            \think\facade\Db::name('audit_log')->insert([
+                'user_id'     => $adminId,
+                'username'    => (string) ($admin ?? ''),
+                'ip'          => (string) request()->ip(),
+                'route'       => substr((string) request()->server('REQUEST_URI', ''), 0, 191),
+                'method'      => substr(request()->method(), 0, 16),
+                'action'      => substr($action, 0, 64),
+                'target_id'   => (string) $targetId,
+                'params'      => json_encode(self::sanitize($detail), JSON_UNESCAPED_UNICODE),
+                'result'      => 'success',
+                'error_msg'   => '',
+                'duration_ms' => 0,
+                'createtime'  => time(),
+            ]);
+        } catch (\Throwable $e) {
+            // 审计落库失败不能打断业务，但必须留痕
+            Log::error('[Audit] audit_log 写入失败: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * 记录一条审计条目
      *
      * @param string $action   动作名，如 login / create_order / update_profile
