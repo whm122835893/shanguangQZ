@@ -17,7 +17,6 @@ export const getCollectionList = (params) => http.get('/box/collection/Collectio
 /* 原站实测 pages/compound/compound 走 POST /synthesis/themeinfo { thm }（GET 无效） */
 export const getSynthesisTheme = (params) =>
   http.post('/synthesis/themeinfo', params || {})
-export const getSynthesisRecord = (params) => http.get('/synthesis/recordList', { params })
 /* 点击合成活动卡片：查询可选合成材料。原站 4003=无资格 3003=直接进方案详情 */
 export const getSynthesisMaterial = (data) =>
   http.post('/synthesis/material', data)
@@ -27,8 +26,6 @@ export const login = (data) => http.post('/user/login', data)
 export const getUserInfo = () => http.post('/user/getUserInfo')
 export const getMyCollection = (params) =>
   http.post('/user_collection/user_collection/antMycollection', params || {})
-export const getCollectionRecord = (params) =>
-  http.post('/user_collection/user_collection/getRecord', params || {})
 export const getAddressList = (params) => http.post('/user/address_list', params || {})
 
 /* ---------------- 订单 ---------------- */
@@ -76,13 +73,10 @@ export const getRegiftOrderDetails = (orderId) =>
 
 /* ---------------- 排行榜 / 社区 ---------------- */
 export const getUserRank = (params) => http.post('/user/ranking', params || {})
-export const getNewRank = (params) => http.post('/user/newrank1', params || {})
 export const getMyUnion = (params) => http.post('/union/user/myunion', params || {})
-export const getUnionLogs = (params) => http.post('/union/index/logs', params || {})
 
 /* ---------------- 活动 ---------------- */
-export const getActivityIndex = (params) => http.post('/activity/index', params || {})
-export const getActivityCategory = () => http.get('/Activity/category')
+/* 水晶商城（原站实测恒空态 total:0，Shop.vue 消费） */
 export const getCrystalGoods = (params) => http.get('/crystal_goods/list', { params })
 
 /* ---------------- 行情 ---------------- */
@@ -124,10 +118,6 @@ export const createMarketOrder = (data) =>
 export const createMarketOrderRush = (data) =>
   http.post('/order/pay/CreateMarketOrderRush', data)
 
-/* 批量购买：POST /order/pay/batchBuy */
-export const batchBuy = (data) =>
-  http.post('/order/pay/batchBuy', data)
-
 /* 汇付开户订单：POST /order/pay/CreateHuifuAccountOrder */
 export const createHuifuAccountOrder = (data) =>
   http.post('/order/pay/CreateHuifuAccountOrder', data)
@@ -144,21 +134,9 @@ export const createVipOrder = (data) =>
 export const doPay = (data) =>
   http.post('/order/pay/doPay', data)
 
-/* 批量支付：POST /order/pay/batchdopay */
-export const batchDoPay = (data) =>
-  http.post('/order/pay/batchdopay', data)
-
-/* 支付短信校验：POST /order/pay/paySmsCheck */
-export const paySmsCheck = (data) =>
-  http.post('/order/pay/paySmsCheck', data)
-
 /* 充值：POST /order/pay/Recharge */
 export const recharge = (data) =>
   http.post('/order/pay/Recharge', data)
-
-/* 批量下单列表：POST /order/order/batchPayOrder */
-export const getBatchOrderList = (params) =>
-  http.post('/order/order/batchPayOrder', params || {})
 
 /* 市场订单详情 */
 export const getMarketOrderDetails = (params) =>

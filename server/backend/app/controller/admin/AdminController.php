@@ -6,6 +6,10 @@ namespace app\controller\admin;
 use app\service\AdminAuthException;
 use app\service\AdminAuthService;
 use app\service\Audit;
+use app\service\LotteryException;
+use app\service\LotteryService;
+use app\service\SynthesisException;
+use app\service\SynthesisService;
 use app\common\Request;
 use app\common\Response;
 use think\facade\Db;
@@ -250,6 +254,141 @@ final class AdminController
             return $err;
         }
         return self::toggle('collection', Request::int('id'), Request::int('is_show'), 'admin_collection_toggle', (int) $admin['id']);
+    }
+
+    // ==================== 抽奖运营 ====================
+
+    public function lotteryList()
+    {
+        [$admin, $err] = self::requireAdmin();
+        if ($err !== null) {
+            return $err;
+        }
+        $page    = max(1, Request::int('page', 1));
+        $perPage = min(100, max(1, Request::int('per_page', 10)));
+        $q       = Db::name('lottery')->order('id', 'desc');
+        $total   = (clone $q)->count();
+        $list    = $q->page($page, $perPage)->select()->toArray();
+        return Response::page($list, $total, $perPage, $page, '抽奖活动列表');
+    }
+
+    /** 新建/编辑抽奖活动（奖池 collection_json 传 JSON 字符串，LotteryService 校验结构） */
+    public function lotterySave()
+    {
+        [$admin, $err] = self::requireAdmin();
+        if ($err !== null) {
+            return $err;
+        }
+        $payload = [
+            'name'            => Request::str('name'),
+            'content'         => Request::str('content'),
+            'image1'          => Request::str('image1'),
+            'image2'          => Request::str('image2'),
+            'crystal'         => Request::str('crystal', '10'),
+            'rule'            => Request::str('rule', '10'),
+            'lottery_max'     => Request::int('lottery_max', 0),
+            'collection_json' => Request::str('collection_json', '[]'),
+            'start_time'      => Request::int('start_time'),
+            'end_time'        => Request::int('end_time'),
+            'switch'          => Request::int('switch', 1),
+        ];
+        $id = Request::int('id');
+        try {
+            $id = LotteryService::adminSave($payload, $id > 0 ? $id : null);
+        } catch (LotteryException $e) {
+            return Response::fail($e->getMessage());
+        }
+        Audit::write($id > 0 ? 'admin_lottery_update' : 'admin_lottery_create', (int) $admin['id'], ['id' => $id], true);
+        return Response::ok(['id' => $id]);
+    }
+
+    /** 活动开关（lottery.switch 位，与 banner 的 is_show 语义不同故单独落点） */
+    public function lotteryToggle()
+    {
+        [$admin, $err] = self::requireAdmin();
+        if ($err !== null) {
+            return $err;
+        }
+        $id     = Request::int('id');
+        $switch = Request::int('switch') === 1 ? 1 : 0;
+        if ($id <= 0) {
+            return Response::fail('id不能为空');
+        }
+        $row = Db::name('lottery')->where('id', $id)->find();
+        if ($row === null) {
+            return Response::fail('活动不存在');
+        }
+        Db::name('lottery')->where('id', $id)->update(['switch' => $switch, 'updatetime' => time()]);
+        Audit::write('admin_lottery_toggle', (int) $admin['id'], ['id' => $id, 'switch' => $switch], true);
+        return Response::ok(['id' => $id, 'switch' => $switch]);
+    }
+
+    // ==================== 合成运营 ====================
+
+    public function synthesisThemeList()
+    {
+        [$admin, $err] = self::requireAdmin();
+        if ($err !== null) {
+            return $err;
+        }
+        $list = Db::name('synthesis_theme')->order('sort', 'desc')->order('id', 'desc')->select()->toArray();
+        return Response::ok($list);
+    }
+
+    /** 新建/编辑合成主题 */
+    public function synthesisThemeSave()
+    {
+        [$admin, $err] = self::requireAdmin();
+        if ($err !== null) {
+            return $err;
+        }
+        $payload = [
+            'name'      => Request::str('name'),
+            'image'     => Request::str('image'),
+            'types'     => Request::int('types', 1),
+            'rule_text' => Request::str('rule_text'),
+            'sort'      => Request::int('sort', 0),
+            'status'    => Request::int('status', 1),
+        ];
+        $id = Request::int('id');
+        try {
+            $id = SynthesisService::adminSaveTheme($payload, $id > 0 ? $id : null);
+        } catch (SynthesisException $e) {
+            return Response::fail($e->getMessage());
+        }
+        Audit::write($id > 0 ? 'admin_synth_theme_update' : 'admin_synth_theme_create', (int) $admin['id'], ['id' => $id], true);
+        return Response::ok(['id' => $id]);
+    }
+
+    /** 新建/编辑合成方案（need_items 传 JSON 字符串） */
+    public function synthesisPlanSave()
+    {
+        [$admin, $err] = self::requireAdmin();
+        if ($err !== null) {
+            return $err;
+        }
+        $payload = [
+            'theme_id'        => Request::int('theme_id'),
+            'title'           => Request::str('title'),
+            'image'           => Request::str('image'),
+            'description'     => Request::str('description'),
+            'start_time'      => Request::int('start_time'),
+            'end_time'        => Request::int('end_time'),
+            'real_start_time' => Request::int('real_start_time'),
+            'classify'        => Request::str('classify', 'regular'),
+            'type'            => Request::str('type', '10'),
+            'stock'           => Request::int('stock', 0),
+            'need_items'      => Request::str('need_items', '[]'),
+            'status'          => Request::int('status', 1),
+        ];
+        $id = Request::int('id');
+        try {
+            $id = SynthesisService::adminSavePlan($payload, $id > 0 ? $id : null);
+        } catch (SynthesisException $e) {
+            return Response::fail($e->getMessage());
+        }
+        Audit::write($id > 0 ? 'admin_synth_plan_update' : 'admin_synth_plan_create', (int) $admin['id'], ['id' => $id], true);
+        return Response::ok(['id' => $id]);
     }
 
     /** 统一的上下架落点：只允许 0/1，写审计，返回新状态 */

@@ -66,10 +66,10 @@ Route::rule('user/login',                [UserController::class, 'login'],      
 Route::rule('user/getUserInfo',          [UserController::class, 'getUserInfo'],      'GET|POST'); // [DB]
 // 🔴 新增端点（原站实名在 App 内完成）：三态分离（脱敏/密文/指纹），红线全在 RealnameService
 Route::rule('user/realname/submit',      [UserController::class, 'realname'],         'GET|POST'); // [新增]
-Route::rule('user/address_list',         [UserExtraController::class, 'addressList'],      'GET|POST'); // [MOCK] 无地址表/无样本
+Route::rule('user/address_list',         [UserExtraController::class, 'addressList'],      'GET|POST'); // [DB] AddressService，14-user-extra.sql
 Route::rule('user/newList',              [UserController::class, 'newList'],          'GET|POST'); // [DB]
 Route::rule('user_collection/user_collection/antMycollection', [UserController::class, 'myCollection'],    'GET|POST'); // [DB]
-Route::rule('user_collection/user_collection/getRecord',      [UserExtraController::class, 'collectionRecord'], 'GET|POST'); // [MOCK] 无前端调用/表空
+Route::rule('user_collection/user_collection/getRecord',      [UserExtraController::class, 'collectionRecord'], 'GET|POST'); // [空态] 无前端调用/无载体
 
 // ==================== 市场 / 行情 ====================
 Route::rule('market/market/getMarketGoodsListByGoodsId', [MarketController::class, 'marketGoodsListByGoodsId'], 'GET|POST'); // [DB]
@@ -98,24 +98,23 @@ Route::rule('order/order/myConsignment',                   [OrderController::cla
 Route::rule('market/Prepayment/myOrderlist',               [OrderController::class, 'myOrderlist'],       'GET|POST'); // [DB] order_type=4 + status 筛选
 
 // ==================== 合成 ====================
-// 🔴 原站实测：synthesis/themeinfo、synthesis/material 均返回 code=401（需登录）
-Route::rule('synthesis/themeinfo',       [ContentPlayController::class, 'synthesisTheme'],     'GET|POST'); // [MOCK] 原站401
-Route::rule('synthesis/material',        [ContentPlayController::class, 'synthesisMaterial'],  'GET|POST'); // [MOCK] 原站401
-Route::rule('synthesis/recordList',      [ContentPlayController::class, 'synthesisRecord'],    'GET|POST'); // [MOCK]
+Route::rule('synthesis/themeinfo',       [ContentPlayController::class, 'synthesisTheme'],     'GET|POST'); // [DB] SynthesisService，表已建
+Route::rule('synthesis/material',        [ContentPlayController::class, 'synthesisMaterial'],  'GET|POST'); // [DB] need_items 真实解析
+Route::rule('synthesis/recordList',      [ContentPlayController::class, 'synthesisRecord'],    'GET|POST'); // [空态] 无执行端点/无载体
 
 // ==================== 抽签 / 抽奖 ====================
-Route::rule('lottery/info',              [ContentPlayController::class, 'lotteryInfo'],      'GET|POST'); // [MOCK]
-Route::rule('lottery/statistics',        [ContentPlayController::class, 'lotteryStatistics'], 'GET|POST'); // [MOCK]
-Route::rule('lottery/start',             [ContentPlayController::class, 'lotteryStart'],      'GET|POST'); // [MOCK]
-Route::rule('lottery/record',            [ContentPlayController::class, 'lotteryRecord'],     'GET|POST'); // [MOCK]
+Route::rule('lottery/info',              [ContentPlayController::class, 'lotteryInfo'],      'GET|POST'); // [DB] LotteryService
+Route::rule('lottery/statistics',        [ContentPlayController::class, 'lotteryStatistics'], 'GET|POST'); // [DB] 用户抽奖记录
+Route::rule('lottery/start',             [ContentPlayController::class, 'lotteryStart'],      'GET|POST'); // [DB] 原子扣水晶+发放
+Route::rule('lottery/record',            [ContentPlayController::class, 'lotteryRecord'],     'GET|POST'); // [DB] 中奖记录
 
 // ==================== 活动 / 社区 ====================
 // 🔴 原站实测：activity/index 返回分页信封但 total=0（站点无数据）
-Route::rule('activity/index',            [ContentPlayController::class, 'activityIndex'],     'GET|POST'); // [MOCK] 原站 total=0
-Route::rule('Activity/category',          [ContentPlayController::class, 'activityCategory'],  'GET|POST'); // [MOCK]
-// 🔴 原站实测：crystal_goods/list 返回 code=401（需登录）
-Route::rule('crystal_goods/list',         [ContentPlayController::class, 'crystalGoods'],     'GET|POST'); // [MOCK] 原站401
-Route::rule('user/ranking',              [UserExtraController::class, 'userRank'],         'GET|POST'); // [MOCK]
+Route::rule('activity/index',            [ContentPlayController::class, 'activityIndex'],     'GET|POST'); // [空态] 原站 total=0
+Route::rule('Activity/category',          [ContentPlayController::class, 'activityCategory'],  'GET|POST'); // [空态] 无前端调用
+// 🔴 原站实测：crystal_goods/list 原站实测 total:0 data:[]（Shop.vue 注释）
+Route::rule('crystal_goods/list',         [ContentPlayController::class, 'crystalGoods'],     'GET|POST'); // [空态] 原站恒空
+Route::rule('user/ranking',              [UserExtraController::class, 'userRank'],         'GET|POST'); // [DB] RankService 实时聚合
 Route::rule('union/user/myunion',        [UserController::class, 'myUnion'],          'GET|POST'); // [DB]
 
 /* ========================================================================

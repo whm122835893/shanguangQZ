@@ -6,7 +6,10 @@ namespace app\controller\api;
 use app\controller\api\Concerns\HasAuth;
 use app\common\Request;
 use app\common\Response;
-use app\service\MockData;
+use app\service\LotteryException;
+use app\service\LotteryService;
+use app\service\SynthesisException;
+use app\service\SynthesisService;
 
 /**
  * 玩法域控制器（v2.4 从 ContentController 拆分）
@@ -30,39 +33,30 @@ class ContentPlayController
 
     // ==================== 合成 ====================
 
-    /** POST /user/login 账号密码登录【DB + Argon2id】 */
+    /** POST /synthesis/themeinfo 合成主题详情（v3.0 切 DB） */
 
     public function synthesisTheme()
     {
-        $thm = Request::int('thm', 1);
-        return Response::ok([
-            'thm'    => $thm,
-            'name'   => '合成主题 ' . $thm,
-            'image'  => MockData::collection($thm)['main_image'],
-            'material_num' => 3,
-        ]);
+        // 原站实测：主题未开启 code:0，前端 catch 后 1.5s 自动回首页
+        try {
+            return Response::ok(SynthesisService::themeinfo(Request::int('thm')));
+        } catch (SynthesisException $e) {
+            return Response::fail($e->getMessage());
+        }
     }
 
-    /** POST /synthesis/material 合成材料 */
+    /** POST /synthesis/material 合成材料（v3.0 切 DB：need_items 真实解析，空数组合法） */
 
     public function synthesisMaterial()
     {
-        $thm = Request::int('thm', 1);
-        // 原站约定：4003=无资格3003=直接进方案详情
-        if ($thm === 0) {
-            return Response::ok(['code' => 4003, 'msg' => '暂无合成资格']);
+        try {
+            return Response::ok(SynthesisService::material(Request::int('play_id')));
+        } catch (SynthesisException $e) {
+            return Response::fail($e->getMessage());
         }
-        return Response::ok([
-            'code' => 3003,
-            'thm'  => $thm,
-            'list' => [
-                ['id' => 1, 'name' => '材料A', 'num' => 2, 'image' => MockData::collection(1)['main_image']],
-                ['id' => 2, 'name' => '材料B', 'num' => 1, 'image' => MockData::collection(2)['main_image']],
-            ],
-        ]);
     }
 
-    /** GET /synthesis/recordList 合成记录 */
+    /** GET /synthesis/recordList 合成记录（本域无执行端点，恒真实空分页） */
 
     public function synthesisRecord()
     {
@@ -72,12 +66,7 @@ class ContentPlayController
         }
 
         ['page' => $p, 'size' => $s] = Request::page();
-        $total = 4;
-        $r = MockData::paginate(function ($i) {
-            $o = MockData::order(18950 + $i, 2, 2);
-            $o['theme_name'] = '主题 ' . ($i + 1);
-            return $o;
-        }, $total, $p, $s);
+        $r = SynthesisService::records((int) $user['id'], $p, $s);
         return Response::page($r['list'], $r['total'], $s, $p);
     }
 
@@ -92,12 +81,12 @@ class ContentPlayController
             return $authErr;
         }
 
-        return Response::ok([
-            'id'     => Request::int('id', 1),
-            'name'   => '幸运抽签',
-            'image'  => MockData::collection(1)['main_image'],
-            'price'  => '10.00',
-        ]);
+        // v3.0 切 DB。原站实测：无进行中活动时 code:0「暂无抽奖活动」，前端 catch 后渲染空态。
+        try {
+            return Response::ok(LotteryService::info((int) $user['id'], Request::int('id')));
+        } catch (LotteryException $e) {
+            return Response::fail($e->getMessage());
+        }
     }
 
     /** POST /lottery/statistics （两种入参形态） */
@@ -109,11 +98,8 @@ class ContentPlayController
             return $authErr;
         }
 
-        return Response::ok([
-            'total_users'  => 128,
-            'today_users'  => 12,
-            'total_prize'  => 5,
-        ]);
+        // v3.0 切 DB：当前用户抽奖记录（Lottery.vue 奖品区 + Record.vue 卡② 消费：数组）
+        return Response::ok(LotteryService::statistics((int) $user['id']));
     }
 
     /** POST /lottery/start （写操作，Mock 仅返回结构） */
@@ -124,7 +110,17 @@ class ContentPlayController
         if ($authErr !== null) {
             return $authErr;
         }
-        return Response::ok(['prize_id' => 1, 'prize_name' => '藏品A']);
+
+        // v3.0 切 DB。前端 Lottery.vue 发 {lotteryId, number}；失败 toast 直接消费 msg。
+        try {
+            return Response::ok(LotteryService::draw(
+                (int) $user['id'],
+                Request::int('lotteryId'),
+                Request::int('number', 1)
+            ));
+        } catch (LotteryException $e) {
+            return Response::fail($e->getMessage());
+        }
     }
 
     /** POST /lottery/record */
@@ -136,36 +132,27 @@ class ContentPlayController
             return $authErr;
         }
 
+        // v3.0 切 DB：中奖记录 {list, total}（Record.vue 卡① 消费）
         ['page' => $p, 'size' => $s] = Request::page();
-        $total = 3;
-        $r = MockData::paginate(function ($i) {
-            $o = MockData::order(18970 + $i, 2, 2);
-            $o['prize_name'] = '奖品' . ($i + 1);
-            return $o;
-        }, $total, $p, $s);
+        $r = LotteryService::records((int) $user['id'], $p, $s);
         return Response::page($r['list'], $r['total'], $s, $p);
     }
 
     // ==================== 活动 / 社区 ====================
 
-    /** POST /activity/index 活动列表 */
+    /**
+     * POST /activity/index 活动列表【空态】
+     * 前端无页面调用（api/index.js 死导出已删）；本域无活动表、无运营入口，
+     * 返回真实空分页——绝不编造活动。
+     */
 
     public function activityIndex()
     {
         ['page' => $p, 'size' => $s] = Request::page();
-        $total = 4;
-        $r = MockData::paginate(function ($i) {
-            return [
-                'id'    => $i + 1,
-                'name'  => '活动 ' . ($i + 1),
-                'image' => MockData::collection($i)['main_image'],
-                'type'  => 1,
-            ];
-        }, $total, $p, $s);
-        return Response::page($r['list'], $r['total'], $s, $p);
+        return Response::page([], 0, $s, $p);
     }
 
-    /** GET /Activity/category 活动分类（⚠️ 首字母大写） */
+    /** GET /Activity/category 活动分类【空态】（⚠️ 首字母大写） */
 
     public function activityCategory()
     {
@@ -174,14 +161,13 @@ class ContentPlayController
             return $authErr;
         }
 
-        return Response::ok([
-            ['id' => 1, 'name' => '全部'],
-            ['id' => 2, 'name' => '抽签'],
-            ['id' => 3, 'name' => '空投'],
-        ]);
+        return Response::ok([]);
     }
 
-    /** GET /crystal_goods/list 水晶列表 */
+    /**
+     * GET /crystal_goods/list 水晶列表【空态】
+     * 原站实测（Shop.vue 注释）即返回 total:0 data:[]（无上架商品），按原样返回。
+     */
 
     public function crystalGoods()
     {
@@ -191,16 +177,6 @@ class ContentPlayController
         }
 
         ['page' => $p, 'size' => $s] = Request::page();
-        $total = 3;
-        $r = MockData::paginate(function ($i) {
-            return [
-                'id' => $i + 1,
-                'name' => '水晶 ' . ($i + 1),
-                'image' => MockData::collection($i)['main_image'],
-                'crystal_type' => ['yellow', 'purple', 'blue'][$i % 3],
-                'price' => '50.00',
-            ];
-        }, $total, $p, $s);
-        return Response::page($r['list'], $r['total'], $s, $p);
+        return Response::page([], 0, $s, $p);
     }
 }

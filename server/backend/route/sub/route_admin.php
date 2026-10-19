@@ -34,3 +34,13 @@ Route::rule('admin/affiche/toggle', [AdminController::class, 'afficheToggle'],  
 // ==================== 藏品上下架 ====================
 Route::rule('admin/collection/list',   [AdminController::class, 'collectionList'],    'GET|POST');
 Route::rule('admin/collection/toggle', [AdminController::class, 'collectionToggle'],  'POST');
+
+// ==================== 抽奖运营 ====================
+Route::rule('admin/lottery/list',   [AdminController::class, 'lotteryList'],    'GET|POST');
+Route::rule('admin/lottery/save',   [AdminController::class, 'lotterySave'],    'POST');
+Route::rule('admin/lottery/toggle', [AdminController::class, 'lotteryToggle'],  'POST');
+
+// ==================== 合成运营 ====================
+Route::rule('admin/synthesis/theme/list', [AdminController::class, 'synthesisThemeList'],  'GET|POST');
+Route::rule('admin/synthesis/theme/save', [AdminController::class, 'synthesisThemeSave'],  'POST');
+Route::rule('admin/synthesis/plan/save',  [AdminController::class, 'synthesisPlanSave'],  'POST');

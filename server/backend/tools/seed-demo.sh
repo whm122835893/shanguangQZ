@@ -35,6 +35,11 @@ DELETE FROM user WHERE username = 'demo_seller';
 DELETE FROM admin_user WHERE username = 'demo_admin';
 DELETE FROM banner  WHERE title LIKE '演示%';
 DELETE FROM affiche WHERE title LIKE '演示%';
+DELETE FROM lottery WHERE name LIKE '演示%';
+DELETE FROM synthesis_plan WHERE title LIKE '演示%';
+DELETE FROM synthesis_theme WHERE name LIKE '演示%';
+DELETE uc FROM user_collection uc JOIN user u ON u.id = uc.user_id WHERE u.username = 'demo_user';
+DELETE ua FROM user_address ua JOIN user u ON u.id = ua.user_id WHERE u.username = 'demo_user';
 SQL
 echo "── 旧演示数据已清理 ──"
 
@@ -81,6 +86,9 @@ R=$(post /admin/affiche/save --data-urlencode "title=演示·首批藏品发售�
      --data-urlencode "content=<p>四个系列藏品即将开售，详见发售日历。本条为演示数据。</p>")
 ck "公告 3（发售上新）" '"code":1' "$R"
 
+# ---------- 4b. 抽奖活动（管理端接口；奖池引用下方第 5 节入库的演示藏品，
+#           故本节整体放在藏品入库之后执行） ----------
+
 # ---------- 5. 系列/发行方/藏品/挂单（SQL：P0 管理端无新建藏品接口） ----------
 mysql gandart <<'SQL'
 INSERT INTO publisher (name, company_logo, createtime)
@@ -117,6 +125,65 @@ FROM collection c WHERE c.name LIKE '演示%';
 SQL
 echo "── 系列/发行方/藏品/挂单已入库 ──"
 
+# ---------- 5b. 抽奖活动（管理端接口，奖池引用 5 节入库的演示藏品） ----------
+NOWTS=$(date +%s)
+POOL=$(php -r '
+$collA = json_decode(shell_exec("mysql gandart -N -e \"SELECT JSON_OBJECT(\\\"collection_id\\\", id, \\\"name\\\", name, \\\"image\\\", listimg, \\\"lottery_image\\\", listimg, \\\"level\\\", \\\"演示大奖\\\", \\\"weight\\\", 30) FROM collection WHERE name LIKE \\\"演示·山河社稷图 壹\\\" LIMIT 1\""), true);
+$collB = json_decode(shell_exec("mysql gandart -N -e \"SELECT JSON_OBJECT(\\\"collection_id\\\", id, \\\"name\\\", name, \\\"image\\\", listimg, \\\"lottery_image\\\", listimg, \\\"level\\\", \\\"演示二等奖\\\", \\\"weight\\\", 20) FROM collection WHERE name LIKE \\\"演示·敦煌飞天\\\" LIMIT 1\""), true);
+$pool = [$collA, $collB, ["collection_id" => 0, "name" => "谢谢参与", "image" => "", "lottery_image" => "", "level" => "谢谢参与", "weight" => 50]];
+echo json_encode($pool, JSON_UNESCAPED_UNICODE);
+')
+R=$(post /admin/lottery/save \
+  --data-urlencode "name=演示·幸运抽奖" \
+  --data-urlencode "content=<p>消耗黄水晶抽奖，奖品为演示藏品。本条为演示数据。</p>" \
+  --data-urlencode "image1=/uploads/20261016/a8b738e3bb0833b5ac46c6fb8ae23240.jpg" \
+  --data-urlencode "crystal=10" \
+  --data-urlencode "rule=10" \
+  --data-urlencode "collection_json=$POOL" \
+  --data-urlencode "start_time=$((NOWTS - 60))" \
+  --data-urlencode "end_time=$((NOWTS + 86400 * 30))" \
+  --data-urlencode "switch=1")
+ck "抽奖活动入库" '"code":1' "$R"
+
+# 演示买家发黄水晶（抽奖消耗货币；demo_user 为既有演示账号，无则跳过）
+mysql gandart -e "UPDATE user SET crystal_yellow = 100 WHERE username = 'demo_user'"
+
+# ---------- 5c. 合成主题+方案（管理端接口，材料引用 5 节入库的演示藏品） ----------
+COLL_FRAG=$(mysql gandart -N -e "SELECT id FROM collection WHERE name LIKE '演示·敦煌飞天' LIMIT 1")
+R=$(post /admin/synthesis/theme/save \
+  --data-urlencode "name=演示·藏品合成季" \
+  --data-urlencode "image=/uploads/20261012/8ef8cc0b715485deb38becbe47624679.jpg" \
+  --data-urlencode "rule_text=集齐 3 份演示材料可合成目标藏品。本条为演示数据。" \
+  --data-urlencode "sort=99")
+ck "合成主题入库" '"code":1' "$R"
+THMID=$(echo "$R" | php -r 'echo json_decode(stream_get_contents(STDIN),true)["data"]["id"] ?? "";')
+R=$(post /admin/synthesis/plan/save \
+  --data-urlencode "theme_id=$THMID" \
+  --data-urlencode "title=演示·合成山河社稷图" \
+  --data-urlencode "image=/uploads/20261012/0cf33a77d86d6298bbe578c17517a84f.jpg" \
+  --data-urlencode "start_time=$(( (NOWTS - 3600) * 1000 ))" \
+  --data-urlencode "end_time=$(( (NOWTS + 86400 * 30) * 1000 ))" \
+  --data-urlencode "real_start_time=$(( (NOWTS - 3600) * 1000 ))" \
+  --data-urlencode "classify=regular" \
+  --data-urlencode "type=10" \
+  --data-urlencode "stock=100" \
+  --data-urlencode "need_items=[{\"collection_id\":$COLL_FRAG,\"name\":\"演示·敦煌飞天\",\"image\":\"/uploads/20261012/8ef8cc0b715485deb38becbe47624679.jpg\",\"num\":3}]")
+ck "合成方案入库" '"code":1' "$R"
+
+# ---------- 5d. 排行/地址演示（让市值排行页与地址页有真实数据） ----------
+mysql gandart <<'SQL'
+-- 演示买家持有 1 件山河社稷图（有最低挂单 19.90 → 排行榜可见）
+INSERT INTO user_collection (user_id, collection_id, num, sell_num, lock_num, is_collection, can_compound, utime, createtime)
+SELECT u.id, c.id, 1, 0, 0, 1, 0, UNIX_TIMESTAMP(), UNIX_TIMESTAMP()
+FROM user u JOIN collection c ON c.name LIKE '演示·山河社稷图 壹'
+WHERE u.username = 'demo_user' LIMIT 1;
+
+-- 演示买家默认收货地址
+INSERT INTO user_address (user_id, name, mobile, province, city, district, address, is_default, createtime, updatetime)
+SELECT u.id, '演示收件人', '13800001234', '浙江省', '杭州市', '西湖区', '文三路 100 号（演示数据）', 1, UNIX_TIMESTAMP(), UNIX_TIMESTAMP()
+FROM user u WHERE u.username = 'demo_user' LIMIT 1;
+SQL
+
 # ---------- 6. C 端验证 ----------
 echo "── C 端验证 ──"
 ck "C 端 banner 列表非空" '"total":3' "$(curl -s -X POST "$BASE/api/banner/show/getBanner")"
@@ -124,6 +191,8 @@ ck "C 端公告列表非空"    '"total":3' "$(curl -s -X POST "$BASE/api/index/
 ck "C 端系列列表非空"    '"name":"历史区"' "$(curl -s -X POST "$BASE/api/index/getSeries")"
 ck "C 端藏品列表非空"    '"total":4' "$(curl -s -X POST "$BASE/api/box/collection/collection_list" -d "page=1&size=10")"
 ck "C 端市场挂单非空"    '"min_price":"19.90"' "$(curl -s -X POST "$BASE/api/market/market/getMarketList" -d "page=1&size=10")"
+# 抽奖：管理端活动列表可查到（C 端 /lottery/info 需登录态，此处用管理端验证）
+ck "抽奖活动入库可查"   '"name":"演示·幸运抽奖"' "$(curl -s "$BASE/admin/lottery/list" $A)"
 
 echo "========================================"
 if [ "$FAIL" -eq 0 ]; then echo "演示数据灌入完成（$PASS 项验证通过）";
