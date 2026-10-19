@@ -86,12 +86,22 @@ class MarketController
         $total = 10;
         $r = MockData::paginate(function ($i) {
             $c = MockData::collection($i + 1);
+            // 对齐前端 MarketCard 契约：product 嵌套 + total_num/flux/min_price/is_out
+            $price = (string)(100 + $i * 10) . '.00';
             return [
-                'id'    => $c['id'],
-                'name'  => $c['name'],
-                'image' => $c['main_image'],
-                'price' => (string)(100 + $i * 10) . '.00',
-                'change_rate' => (string)round(($i - 2) * 1.5, 2) . '%',
+                'id'            => $c['id'],
+                'goods_type'    => 2,
+                'is_out'        => 0,
+                'total_num'     => 100000,
+                'flux'          => 30000 + $i * 100,
+                'min_price'     => $price,
+                'price'         => $price,
+                'reprice_limit' => null,
+                'product'       => [
+                    'name'          => $c['name'],
+                    'listimg'       => $c['main_image'],
+                    'reprice_limit' => '2000.00',
+                ],
             ];
         }, $total, $p, $s);
         return Response::page($r['list'], $r['total'], $s, $p);
