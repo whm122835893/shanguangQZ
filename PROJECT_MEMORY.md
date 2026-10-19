@@ -713,3 +713,74 @@ return Response::success('支付成功', ['pay_no' => 'MOCKPAY' . random_int(...
 ① `paid()` 只在收到通道回调或查单确认后调用；
 ② 回调入口校验签名；
 ③ 回调处理幂等（同一 order_sn 重复回调不重复发货）。
+
+---
+
+## 账号域真实后端（2026-10-19）
+
+### 为什么做
+
+MOCK 端点全量盘点后，挑出账号域三个端点先做 —— 它们依赖短信通道，
+比支付通道容易接，且能一次解锁整个账号体系。
+
+**原 MOCK 实现的漏洞（任何人可利用）**
+
+```php
+// sms/send —— 验证码直接回传给前端
+return Response::ok(['mobile'=>$mobile,'event'=>$event,'expire'=>60,'code'=>'123456']);
+```
+
+调一次接口就拿到验证码，注册/改密的验证码环节形同虚设；而且全局写死一个码。
+`register` 不落库（返回 MockData 假用户），`resetPwd` 不改密（只回显 mobile）。
+
+### 做了什么
+
+| 文件 | 职责 |
+|---|---|
+| `app/model/SmsCode.php` | 验证码模型：HMAC-SHA256 存储 + 各类阈值常量 |
+| `app/service/SmsSender.php` | 通道接口 |
+| `app/service/SmsResult.php` | 发送结果（`sent` / `sentWithCode` / `failed`） |
+| `app/service/LocalSmsChannel.php` | 本地通道，码写日志，不进响应体 |
+| `app/service/NullSmsChannel.php` | 恒定失败 |
+| `app/service/SmsChannels.php` | 按 `env('SMS_CHANNEL')` 分发 |
+| `app/service/SmsCodeService.php` | 生成/发送/校验，频率与爆破防护 |
+| `app/service/AccountService.php` | 注册/改密的事务编排 |
+| `app/service/PasswordPolicy.php` | 密码强度、唯一键判定、登录载荷 |
+| `app/controller/api/SmsController.php` | sms/send（从 PayController 迁出） |
+| `sql/09-account-auth.sql` | sms_code 改 HMAC + 新增 sms_send_log + user 补 2 列 |
+
+### 四条底线
+
+1. **明文码绝不出现在 HTTP 响应体** — 响应只含 `{mobile, event, expire}`
+2. **一次性消费** — 校验成功即 `is_used=1`，重放被拒
+3. **试 5 次作废** — 6 位码只有 10^6 空间，必须限爆破
+4. **改密吊销该用户全部 token** — 改密语义是「怀疑密码泄露」，旧 token 有效等于没改
+
+### 短信通道 vs 支付通道：为什么结论不同
+
+| | 支付 | 短信 |
+|---|---|---|
+| 无通道时 | 拒绝（fail-closed） | 可发，走本地通道写日志 |
+| 理由 | 支付成功=钱扣了 | 失败代价是收不到码，非资损 |
+| 生产兜底 | 恒定拒绝 | 未配置通道时明确失败 |
+
+短信若也 fail-closed，本地开发与自动化测试完全无法注册；
+但生产环境未配置通道时必须失败 ——「说发送成功但用户永远收不到」也是假成功。
+
+### 踩坑
+
+| 坑 | 修法 |
+|---|---|
+| `.env` 分段键读取需带前缀（`env('SMS.HMAC_KEY')`） | 根级键**必须放在所有 `[分段]` 之前**，否则解析器把它归进上一个段 |
+| `parse_ini_file` 只认 `;` 注释，`#` 会导致整个 .env 解析失败 | .env 注释一律用 `;` |
+| ThinkPHP 的 Env 用 `parse_ini_file` 加载，语法错误时**静默返回空数组** | 改完 .env 必须 `var_dump(env('XXX'))` 实测确认，不能假定生效 |
+| `AccountService` 写完 302 行触发 300 行红线 | 拆出 `PasswordPolicy`（密码策略/唯一键判定/登录载荷） |
+| 拆完有未使用的 import（`UserToken` / `MockData`） | 拆分后必查 import 使用情况，否则是死引用 |
+
+### 接入真实短信服务商
+
+1. 新建 `implements SmsSender` 的类
+2. 在 `SmsChannels::for()` 登记分发
+3. 其余代码不动
+
+生产环境还需在 `.env` 配 `SMS_CHANNEL=<服务商>` 与 `SMS_HMAC_KEY`（32 字节随机 hex）。

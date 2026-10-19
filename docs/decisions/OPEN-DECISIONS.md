@@ -430,3 +430,94 @@ POST /api/order/pay/doPay（无 token）
 ```
 
 下单端点 `pay_time` 前后均为 0，确认无支付副作用。
+
+---
+
+## D-011 账号域（注册/改密/短信）：MOCK → DB，含验证码安全加固
+
+| 字段 | 内容 |
+|---|---|
+| Date | 2026-10-19 |
+| Source | Phase 3（账号域真实后端） |
+| Open Item | 短信服务商通道未接入（无商户账号） |
+| Related Constraints | 原站 `sms/send`、`user/register`、`user/resetpwd` 三端点需真实短信验证码才能取样 |
+| Current Leaning | 短信通道抽象 + LocalChannel（写日志）；生产未配置通道时明确失败 |
+| Blocked By | 需要腾讯云/阿里云短信的商户账号与模板报备 |
+| Resolves When | 拿到短信服务商账号，在 `SmsChannels::for()` 登记真实通道 |
+| Status | **OPEN** |
+
+**背景**
+
+这三个端点原为 MOCK，且存在**任何人都能利用**的漏洞：
+
+```php
+// 原 sms/send 实现
+return Response::ok([
+    'mobile' => $mobile, 'event' => $event, 'expire' => 60,
+    'code'   => '123456',   // ← 验证码直接回传给前端
+]);
+```
+
+调一次 `sms/send` 就能拿到验证码，注册/改密的验证码环节形同虚设；
+且它写死 `'123456'`，全局一个码。`register` 不落库、`resetPwd` 不改密。
+
+**改造后的链路**
+
+| 层 | 实现 |
+|---|---|
+| `SmsCode`（模型） | 验证码 HMAC-SHA256 存储 + 一次性消费 + 次数/频率常量 |
+| `SmsCodeService` | 生成 / 发送 / 校验，含 60 秒间隔、单日 10 次、试 5 次作废 |
+| `SmsSender` / `SmsResult` | 通道抽象，与支付网关同构 |
+| `LocalSmsChannel` | 本地通道，码写日志（**不进响应体**） |
+| `NullSmsChannel` | 恒定失败，绝不假成功 |
+| `SmsChannels` | 按 `env('SMS_CHANNEL')` 分发 |
+| `AccountService` | 注册/改密的事务编排 |
+| `PasswordPolicy` | 密码强度、唯一键判定、登录载荷签发 |
+
+**四条不可让步的底线**
+
+1. **明文码绝不出现在 HTTP 响应体**
+   响应只含 `{mobile, event, expire}`。原 MOCK 的最大漏洞就此封死。
+2. **一次性消费** — 校验成功即 `is_used=1`
+3. **试 5 次作废** — 6 位码只有 10^6 空间，必须限爆破
+4. **改密吊销该用户全部 token** — 改密语义是「怀疑密码泄露」，
+   旧 token 仍有效等于没改
+
+**为什么用 HMAC-SHA256 而不是 MD5**
+
+原 `05-system-security.sql` 的 `code_hash char(32)` 注释写着「验证码 MD5」。
+「不存明文」是对的，但 MD5 选型是错的：6 位数字码空间仅 10^6，
+无盐 MD5 可被彩虹表离线还原。迁移 `09-account-auth.sql` 改为
+`char(64)` 的 HMAC-SHA256(手机号|场景|码, key)，且哈希绑定了
+手机号与场景 —— 注册码无法拿去改密。
+
+**短信通道与支付通道的差异（重要）**
+
+| | 支付 | 短信 |
+|---|---|---|
+| 无通道时 | **拒绝**（fail-closed） | 可发，但走本地通道写日志 |
+| 理由 | 支付成功=钱扣了，不许假成功 | 失败代价是「收不到码」，非资损 |
+| 生产兜底 | 恒定拒绝 | 未配置通道时**明确失败**，不假装成功 |
+
+短信若也 fail-closed，本地开发与自动化测试将完全无法注册，账号体系无法推进；
+但**生产环境**（`APP_DEBUG=false`）未配置通道时必须失败 ——
+「接口说发送成功但用户永远收不到」也是另一种假成功。
+
+**接入真实短信服务商时**
+
+1. 新建 `implements SmsSender` 的类（如 `TencentSmsChannel`）
+2. 在 `SmsChannels::for()` 登记 `env('SMS_CHANNEL')` 的分发规则
+3. 其余代码（Service / Controller / 契约用例）**无需改动**
+
+**验证证据**
+
+契约用例 `AccountCases.php` 共 43 条断言，全量回归 158 条 PASS / 0 FAIL。
+HTTP 实测：
+
+```
+POST /api/sms/send        → {"code":1,"data":{"mobile":"...","event":"register","expire":60}}
+                              ↑ data 中无 code 字段，明文码未泄露
+POST /api/sms/send（重发） → {"code":0,"msg":"请 60 秒后再试"}
+POST /api/user/register   → {"code":1,"msg":"注册成功"}，user + user_credential 均落库
+POST /api/user/resetpwd   → {"code":1,"msg":"重置成功"}，该用户 token 数 1 → 0
+```

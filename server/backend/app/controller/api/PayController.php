@@ -7,7 +7,6 @@ use app\model\ArtelOrder;
 use app\model\VipOrder;
 use app\service\Gateways;
 use app\service\OrderService;
-use app\service\MockData;
 use app\service\PayFormatter;
 use app\common\Msg;
 use app\common\Request;
@@ -227,22 +226,4 @@ class PayController
             'pay_type'   => 4,
         ]);
     }
-
-    public function sendSms()
-    {
-        $mobile = Request::str('mobile');
-        $event  = Request::str('event');   // register / resetpwd
-        if ($mobile === '' || !preg_match('/^1[3-9]\d{9}$/', $mobile)) {
-            return Response::fail('手机号格式错误');
-        }
-        if (!in_array($event, ['register', 'resetpwd'], true)) {
-            return Response::fail('不支持的验证场景');
-        }
-        return Response::ok([
-            'mobile'   => $mobile,
-            'event'    => $event,
-            'expire'   => 60,
-            // Mock 阶段固定验证码，方便自动化测试
-            'code'     => '123456',
-        ]);
-    }}
+}

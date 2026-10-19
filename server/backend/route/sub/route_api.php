@@ -12,6 +12,7 @@ use app\controller\api\UserController;
 use app\controller\api\UserExtraController;
 use app\controller\api\PayController;
 use app\controller\api\PayOrderController;
+use app\controller\api\SmsController;
 use app\controller\api\TradeController;
 
 /**
@@ -142,7 +143,7 @@ Route::rule('user_collection/user_collection/show_resale_money', [TradeControlle
 Route::rule('union/index/logs',                     [UserController::class, 'unionLogs'],                'GET|POST'); // [MOCK]
 Route::rule('user/newrank1',                        [TradeController::class, 'newRank'],                  'GET|POST'); // [MOCK]
 Route::rule('index/getConfig',                      [TradeController::class, 'getConfig'],                'GET|POST'); // [DB] 已按原站补 key 校验
-Route::rule('sms/send',                             [PayController::class, 'sendSms'],                  'GET|POST'); // [MOCK]
-Route::rule('user/register',                        [AccountController::class, 'register'],                 'GET|POST'); // [MOCK]
-Route::rule('user/resetpwd',                        [AccountController::class, 'resetPwd'],                 'GET|POST'); // [MOCK]
+Route::rule('sms/send',                             [SmsController::class, 'send'],                    'GET|POST'); // [DB] 随机码+HMAC存储+频率限制，响应绝不含明文码
+Route::rule('user/register',                        [AccountController::class, 'register'],                 'GET|POST'); // [DB] 真落库 user+user_credential(Argon2id)，验证码一次性消费
+Route::rule('user/resetpwd',                        [AccountController::class, 'resetPwd'],                 'GET|POST'); // [DB] 真改密+吊销该用户全部 token
 Route::rule('order/pay/batchdopay',                 [PayController::class, 'batchDoPay'],               'GET|POST'); // [DB] 逐单归属校验+网关，success 如实统计
