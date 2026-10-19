@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\api;
 
 use app\model\ArtelOrder;
+use app\service\Gateways;
 use app\service\MockData;
 use app\common\Msg;
 use app\common\Request;
@@ -76,7 +77,45 @@ class OrderController
         if ($orderSn === '') {
             return Response::fail('订单号不能为空');
         }
-        return Response::ok(['pay_no' => 'MOCKPAY' . random_int(100000, 999999)]);
+        // 原站实测文案（raw/order_pay_dopay.json）：支付方式不能为空
+        $payWay = Request::str('pay_way');
+        if ($payWay === '') {
+            return Response::fail('支付方式不能为空');
+        }
+
+        // 🔐 IDOR 防护：订单必须属于当前用户。不匹配时返回「订单不存在」
+        //    而非「无权限」——后者等于确认订单号存在，会泄露订单空间。
+        $order = ArtelOrder::where('order_sn', $orderSn)
+            ->where('user_id', $user['id'])
+            ->find();
+        if ($order === null) {
+            return Response::fail('订单不存在');
+        }
+
+        // 幂等：已付过款的订单不允许再次发起支付。
+        // 判定依据用 pay_time（字段语义明确：0 = 从未支付），
+        // 而不是 order_status —— 状态枚举的实测值仅有 2/3 两个样本，
+        // 语义归属未确认（见 ArtelOrder::STATUS 注释），拿它做幂等判断
+        // 会把「已支付」误判成「待付款」从而重复收款。
+        if ((int) $order['pay_time'] > 0) {
+            return Response::fail('该订单已完成支付');
+        }
+
+        // 收款结果**只能**由网关决定。通道未接入时网关恒返回拒绝，
+        // 本方法不存在任何「凭空构造成功」的路径（见 PayGateway 注释）。
+        $result = Gateways::make($payWay)->charge($order->toArray(), $payWay);
+        if (! $result->paid) {
+            return Response::fail($result->msg);
+        }
+
+        // 以下分支仅在真实通道确认收款后可达
+        $order->save([
+            'pay_time'    => time(),
+            'pay_channel' => $payWay,
+            'updatetime'  => time(),
+        ]);
+
+        return Response::ok(['pay_no' => $result->payNo]);
     }
 
     // ==================== 订单 ====================

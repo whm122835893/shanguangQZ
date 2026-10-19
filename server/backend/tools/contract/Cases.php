@@ -46,6 +46,7 @@ require __DIR__ . '/cases/ContentCases.php';
 require __DIR__ . '/cases/MarketCases.php';
 require __DIR__ . '/cases/OrderCases.php';
 require __DIR__ . '/cases/BegBuyCases.php';
+require __DIR__ . '/cases/PayCases.php';
 
 if (!function_exists('runContractCases')) {
     /** 由 run.php 调用，按领域顺序执行全部用例 */
@@ -56,5 +57,6 @@ if (!function_exists('runContractCases')) {
         runMarketCases();   // tradeDetail / prepayDetail / tradingInfo / begBuyList（双分支）
         runOrderCases();    // orderList / batchPayOrder / createVipOrder
         runBegBuyCases();   // begBuyOrderList/Info + create/cancelBegBuyOrder（raw5 实测域）
+        runPayCases();      // doPay / batchDoPay / createOrder / createHuifuAccountOrder（安全红线）
     }
 }

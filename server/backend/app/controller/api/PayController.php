@@ -3,14 +3,16 @@ declare(strict_types=1);
 
 namespace app\controller\api;
 
+use app\model\ArtelOrder;
 use app\model\VipOrder;
+use app\service\Gateways;
+use app\service\OrderService;
 use app\service\MockData;
 use app\service\PayFormatter;
 use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
 use app\controller\api\Concerns\HasAuth;
-use app\controller\api\Concerns\MakesOrders;
 
 /**
  * 支付域控制器（v2.3 从 Trade 拆分，v2.4 修 makeOrder 断裂，v2.5 切两个端点）
@@ -20,7 +22,8 @@ use app\controller\api\Concerns\MakesOrders;
  * 🔴 v2.4 修复：本类 5 个 Create*Order 端点一直在调 $this->makeOrder()，
  *    但该方法实体留在 TradeController 且是 private——跨类调用必然 fatal。
  *    已实测复现（POST /api/order/pay/CreateVipOrder 返回 500 HTML 错误页），
- *    现改为共用 Concerns\MakesOrders trait。
+ *    现改为：下单走 OrderService（服务端算价+幂等+事务落库），
+ *    支付走 Gateways 网关抽象——两者都不再产生假成功。
  *    教训：私有方法跨类不可见，PHP 运行期才报错，静态检查与 lint 都发现不了。
  *
  * 🔴 v2.5 数据来源分三类，勿混淆：
@@ -38,7 +41,7 @@ use app\controller\api\Concerns\MakesOrders;
  */
 class PayController
 {
-    use HasAuth, MakesOrders;
+    use HasAuth;
 
     public function batchBuy()
     {
@@ -80,22 +83,54 @@ class PayController
         }
 
         $sns = Request::str('order_sns') ?: Request::str('order_sn');
-        if ($sns === '') {
+        if ($sns === '' ) {
             return Response::fail('订单号不能为空');
         }
-        $arr = array_filter(array_map('trim', explode(',', $sns)));
-        $ok  = [];
-        foreach ($arr as $sn) {
-            $ok[] = [
-                'order_sn' => $sn,
-                'pay_no'   => 'MOCKPAY' . random_int(100000, 999999),
-                'status'   => 1,               // 布尔 = int
-            ];
+        $payWay = Request::str('pay_way');
+        if ($payWay === '') {
+            return Response::fail('支付方式不能为空');
         }
+
+        $arr    = array_filter(array_map('trim', explode(',', $sns)));
+        $items  = [];
+        $success = 0;
+
+        foreach ($arr as $sn) {
+            // 🔐 逐单校验归属（IDOR）：不属于当前用户按「订单不存在」处理
+            $order = ArtelOrder::where('order_sn', $sn)
+                ->where('user_id', $user['id'])
+                ->find();
+
+            if ($order === null) {
+                $items[] = ['order_sn' => $sn, 'pay_no' => '', 'status' => 0, 'msg' => '订单不存在'];
+                continue;
+            }
+            if ((int) $order['pay_time'] > 0) {
+                $items[] = ['order_sn' => $sn, 'pay_no' => '', 'status' => 0, 'msg' => '该订单已完成支付'];
+                continue;
+            }
+
+            // 与 doPay 同源：收款结果只由网关决定，通道未接入即拒绝。
+            // 旧实现在此直接编造 MOCKPAY 支付号并置 status=1（假成功）。
+            $result = Gateways::make($payWay)->charge($order->toArray(), $payWay);
+            if (! $result->paid) {
+                $items[] = ['order_sn' => $sn, 'pay_no' => '', 'status' => 0, 'msg' => $result->msg];
+                continue;
+            }
+
+            $order->save([
+                'pay_time'    => time(),
+                'pay_channel' => $payWay,
+                'updatetime'  => time(),
+            ]);
+            $success++;
+            $items[] = ['order_sn' => $sn, 'pay_no' => $result->payNo, 'status' => 1, 'msg' => ''];
+        }
+
         return Response::ok([
-            'total'   => count($ok),
-            'success' => count($ok),
-            'items'   => $ok,
+            'total'   => count($items),
+            'success' => $success,
+            'items'   => $items,
         ]);
     }
 
@@ -125,33 +160,6 @@ class PayController
         }
 
         return Response::ok(PayFormatter::noBatchOrder(), Msg::BATCH_PAY_ORDER);
-    }
-
-    // ==================== 订单详情 ====================
-
-    public function createHuifuAccountOrder()
-    {
-        return $this->makeOrder();
-    }
-
-    public function createMarketOrder()
-    {
-        return $this->makeOrder();
-    }
-
-    public function createMarketOrderRush()
-    {
-        [$user, $authErr] = $this->currentUser();
-        if ($authErr !== null) {
-            return $authErr;
-        }
-
-        return $this->makeOrder();
-    }
-
-    public function createOrder()
-    {
-        return $this->makeOrder();
     }
 
     /**

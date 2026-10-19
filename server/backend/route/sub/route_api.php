@@ -11,6 +11,7 @@ use app\controller\api\OrderController;
 use app\controller\api\UserController;
 use app\controller\api\UserExtraController;
 use app\controller\api\PayController;
+use app\controller\api\PayOrderController;
 use app\controller\api\TradeController;
 
 /**
@@ -84,7 +85,7 @@ Route::rule('market/trade/begBuyOrderInfo',               [BegBuyController::cla
 
 // ==================== 交易下单 ====================
 Route::rule('order/pay/fastOrderNew',     [OrderController::class, 'fastOrderNew'],     'GET|POST'); // [MOCK]
-Route::rule('order/pay/doPay',            [OrderController::class, 'doPay'],             'GET|POST'); // [MOCK]
+Route::rule('order/pay/doPay',            [OrderController::class, 'doPay'],             'GET|POST'); // [DB] 网关抽象：通道未接入即拒绝，绝不假成功
 
 // ==================== 订单 ====================
 Route::rule('order/order/orderList',                       [OrderController::class, 'orderList'],         'GET|POST'); // [DB]
@@ -120,11 +121,11 @@ Route::rule('union/user/myunion',        [UserController::class, 'myUnion'],    
  *      交易链路走到 CreateOrder 就断，表现为「点了没反应」且不报错。
  * 契约：docs/api/API.md + src/api/index.js 调用注释
  * ======================================================================== */
-Route::rule('order/pay/CreateOrder',                [PayController::class, 'createOrder'],              'GET|POST'); // [MOCK]
-Route::rule('order/pay/CreateMarketOrder',          [PayController::class, 'createMarketOrder'],        'GET|POST'); // [MOCK]
-Route::rule('order/pay/CreateMarketOrderRush',      [PayController::class, 'createMarketOrderRush'],    'GET|POST'); // [MOCK]
+Route::rule('order/pay/CreateOrder',                [PayOrderController::class, 'createOrder'],              'GET|POST'); // [DB] 服务端算价+幂等+事务落库
+Route::rule('order/pay/CreateMarketOrder',          [PayOrderController::class, 'createMarketOrder'],        'GET|POST'); // [DB] 同上
+Route::rule('order/pay/CreateMarketOrderRush',      [PayOrderController::class, 'createMarketOrderRush'],    'GET|POST'); // [DB] 同上
 Route::rule('order/pay/CreateVipOrder',             [PayController::class, 'createVipOrder'],           'GET|POST'); // [DB]
-Route::rule('order/pay/CreateHuifuAccountOrder',    [PayController::class, 'createHuifuAccountOrder'],  'GET|POST'); // [MOCK]
+Route::rule('order/pay/CreateHuifuAccountOrder',    [PayOrderController::class, 'createHuifuAccountOrder'],  'GET|POST'); // [契约] 原站实测：本账号已付开户费
 Route::rule('order/pay/batchBuy',                   [PayController::class, 'batchBuy'],                 'GET|POST'); // [MOCK]
 Route::rule('order/pay/Recharge',                   [PayController::class, 'recharge'],                 'GET|POST'); // [MOCK]
 Route::rule('order/pay/paySmsCheck',                [PayController::class, 'paySmsCheck'],              'GET|POST'); // [MOCK]
@@ -144,4 +145,4 @@ Route::rule('index/getConfig',                      [TradeController::class, 'ge
 Route::rule('sms/send',                             [PayController::class, 'sendSms'],                  'GET|POST'); // [MOCK]
 Route::rule('user/register',                        [AccountController::class, 'register'],                 'GET|POST'); // [MOCK]
 Route::rule('user/resetpwd',                        [AccountController::class, 'resetPwd'],                 'GET|POST'); // [MOCK]
-Route::rule('order/pay/batchdopay',                 [PayController::class, 'batchDoPay'],               'GET|POST'); // [MOCK]
+Route::rule('order/pay/batchdopay',                 [PayController::class, 'batchDoPay'],               'GET|POST'); // [DB] 逐单归属校验+网关，success 如实统计

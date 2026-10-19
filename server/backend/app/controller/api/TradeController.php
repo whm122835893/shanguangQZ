@@ -243,7 +243,7 @@ class TradeController
     // register / resetPwd 已移至 AccountController（user/ 域，v2.4 归位）
     //
     // ==================== 内部 ====================
-    // makeOrder 已抽至 Concerns\MakesOrders（v2.4）——曾因留在本类变成
+    // makeOrder 曾抽至 Concerns\MakesOrders（v2.4）——因留在本类变成
     // 私有方法，导致 PayController 的 5 个 Create*Order 端点调用时 fatal
     // （实测 500 HTML 错误页，静态检查发现不了，详见 trait 注释）。
 }

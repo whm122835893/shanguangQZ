@@ -355,3 +355,78 @@ raw6 矩阵 10 个样本的实证格局：
 本地实现把判别显式化为 `MarketFormatter::begBuyList(..., bool $begBuyable)` 形参，
 Controller 计算 flag 后传入——将来换判别列只改一处（`MarketController::begBuyList()`
 第 4 层），格式化器不动。
+
+---
+
+## D-010 交易支付链路：原站不可用，按行业最优方案 fail-closed 实现
+
+| 字段 | 内容 |
+|---|---|
+| Date | 2026-10-19 |
+| Source | Phase 3（交易链路真实后端） |
+| Open Item | 原站 `order/pay/*` 整组端点空响应，无法取得真实支付契约样本 |
+| Related Constraints | 用户已提供账号密码，登录本身成功；抓包时该组端点无任何返回体 |
+| Current Leaning | 采用支付网关抽象（PaymentGateway）+ NullGateway，通道未接入即拒绝 |
+| Blocked By | 需要原站商户号/支付渠道对接文档，或真实支付通道测试环境 |
+| Resolves When | 拿到汇付（huifu）或任一真实通道的商户文档与测试环境 |
+| Status | **OPEN** |
+
+**背景**
+
+用户授权的账号登录正常，但 `order/pay/doPay`、`batchdopay`、`CreateOrder`
+等写端点在原站整组无响应（空 body），无样本可抄。
+
+**发现的资损缺陷（本次修复的核心）**
+
+旧实现在写端点直接返回：
+
+```php
+return Response::success('支付成功', ['pay_no' => 'MOCKPAY' . random_int(...)]);
+```
+
+即**伪造支付成功**，且订单不落库、支付号为占位串。叠加 `server.cjs` 的
+`API_UPSTREAM` 指向本地 Mock，一旦发布就是「用户付款看到成功、
+但无订单无资金流」的事故。
+
+**行业最优方案：网关抽象 + fail-closed**
+
+| 层 | 职责 |
+|---|---|
+| `PaymentGateway`（接口） | `charge(array $order, string $payWay): PayResult` |
+| `PayResult` | 只允许 `paid()` / `rejected()` 两个出口；`paid=true` **只能**来自真实通道回调或查单结果 |
+| `NullGateway` | 恒定 `rejected(PAY_CHANNEL_NOT_READY)`，绝不假成功 |
+| `Gateways` | 按 `payment_channel` 分发；当前统一返回 NullGateway |
+
+配套的三条底线：
+
+1. **服务端算价** — `OrderService` 从 `market_goods` 挂单价计算，
+   完全忽略前端传入的 `price` 字段（契约用例专门用 `price=0.01` 篡改验证）
+2. **幂等 + 事务** — 同用户同商品已有待付款单返回「请勿重复提交」，
+   下单与落库在同一事务内
+3. **IDOR 最小披露** — 他人订单一律按「订单不存在」处理，不泄露订单空间
+
+**为什么不接一个「假支付成功」的开发通道**
+
+真实交易链路一旦能返回成功，前端与运营就会认为链路已通；
+上线换真通道时必然出现「测试环境能过、生产扣不到款」的巨大落差。
+fail-closed 的代价是「上线前点支付会失败」，收益是**绝不会出现资损假象**。
+
+**验证证据**
+
+`tools/contract/cases/PayCases.php` 共 23 条断言，全部通过；
+HTTP 层实测：
+
+```
+POST /api/order/pay/doPay?token=...
+  → {"code":0,"msg":"支付通道未接入，当前无法完成支付"}
+
+POST /api/order/pay/batchdopay
+  → {"total":2,"success":0,"items":[
+       {"pay_no":"","status":0,"msg":"支付通道未接入，当前无法完成支付"},
+       {"pay_no":"","status":0,"msg":"订单不存在"}]}
+
+POST /api/order/pay/doPay（无 token）
+  → {"code":401,"msg":"请登录后操作"}
+```
+
+下单端点 `pay_time` 前后均为 0，确认无支付副作用。

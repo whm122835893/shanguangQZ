@@ -66,6 +66,18 @@ final class Msg
     // ---------- 交易域 ----------
     public const BATCH_PAY_ORDER     = '暂无订单';
     public const CREATE_VIP_ORDER    = '下单成功';
+
+    /** 市场下单成功（CreateOrder / CreateMarketOrder / CreateMarketOrderRush 共用） */
+    public const CREATE_ORDER         = '下单成功';
+
+    /**
+     * 支付通道未接入（NullGateway 恒定返回）
+     *
+     * 🔴 这条消息是安全红线的一部分：本机没有真实收单能力时，支付端点
+     *    必须返回明确失败，绝不能返回「支付成功」（2026-10-19 前是伪造的
+     *    MOCKPAY 成功，会造成线上资损）。文案对终端用户可读、不误导。
+     */
+    public const PAY_CHANNEL_NOT_READY = '支付通道未接入，当前无法完成支付';
     public const MY_CONSIGNMENT      = '寄售列表';
     public const CASH_LIST           = '提现列表';
     public const APPLY_INFO          = '申请信息';

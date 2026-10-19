@@ -659,3 +659,57 @@ agent-browser eval "localStorage.setItem('token', JSON.stringify('<token>'))"
 | 2026-10-17 | **全站脱网：图标落盘 public/static，二维码本地生成，图片由后端缓存服务** | 消除全部原站依赖，可离线运行；图片采用「首次抓取+本地缓存」而非全量预下载，节省仓库体积 |
 | 2026-10-17 | **二维码输出 SVG 而非 PNG** | 沙箱 PHP 无 GD 扩展，PNG/ImageMagick Writer 均不可用；`SvgWriter` 纯 PHP，浏览器 `<img>` 可直接渲染 |
 | 2026-10-17 | **`server.cjs` 与 `vite.config.js` 默认代理本地 Mock** | 避免生产部署误连原站；对照抓包时用 `API_UPSTREAM` / `PROXY_TARGET` 显式指定 |
+---
+
+## 交易链路真实后端（2026-10-19）
+
+### 为什么做
+
+排查原站依赖时发现 `order/pay/*` 整组写端点在原站**无响应**，
+无法取得样本。同时查出本地实现存在资损级缺陷：
+
+```php
+// 旧实现（已删除）
+return Response::success('支付成功', ['pay_no' => 'MOCKPAY' . random_int(...)]);
+```
+
+伪造支付成功 + 订单不落库。叠加 `server.cjs` 的 `API_UPSTREAM`
+指向本地 Mock，发布即事故。
+
+### 做了什么
+
+| 文件 | 职责 |
+|---|---|
+| `app/service/PaymentGateway.php` | 网关接口 `charge(array $order, string $payWay): PayResult` |
+| `app/service/PayResult.php` | 只允许 `paid()` / `rejected()`；`paid=true` 只能来自真实通道 |
+| `app/service/NullGateway.php` | 恒定拒绝，**永不假成功** |
+| `app/service/Gateways.php` | 按 `payment_channel` 分发，当前统一 NullGateway |
+| `app/service/OrderService.php` | 服务端算价 + 幂等 + 事务落库 |
+| `app/controller/api/PayOrderController.php` | 承接 CreateOrder / CreateMarketOrder / CreateMarketOrderRush / CreateHuifuAccountOrder（从 PayController 拆出） |
+
+同时删除死代码 `app/controller/api/Concerns/MakesOrders.php`
+（`makeOrder()` 已无调用方）。
+
+### 三条不可让步的底线
+
+1. **服务端算价** — 忽略前端传入的 `price`，只认 `market_goods` 挂单价。
+   契约用 `price=0.01` 篡改验证：88.00 × 2 仍算 176.00。
+2. **支付失败无副作用** — 通道未接入时 `pay_time` 不变、支付号为空。
+3. **IDOR 最小披露** — 他人订单按「订单不存在」处理。
+
+### 踩坑
+
+| 坑 | 修法 |
+|---|---|
+| `UserToken::issue()` 签名是 `(device, ip)`，**不接收 user_id** | 归属靠单独 INSERT 的 `user_id` 列建立，不要指望 issue() |
+| 一个文件放多个类违反 PSR-4，PHP 找不到类 | 一个文件一个类，按命名空间拆 |
+| 契约用例的校验顺序错了 | 数量校验排在幂等校验之前（先判断买不买得起，再判断是否重复提交），断言文案要按真实顺序写 |
+| `pay think run` 未起库时 `startTrans()` 直接 PDOException | 先 `mysqld_safe` 再跑契约 |
+
+### 接入真实通道时怎么做
+
+只需在 `Gateways::for()` 里按 `payment_channel` 返回真实网关实现，
+其余代码不动。真实网关必须做到：
+① `paid()` 只在收到通道回调或查单确认后调用；
+② 回调入口校验签名；
+③ 回调处理幂等（同一 order_sn 重复回调不重复发货）。
