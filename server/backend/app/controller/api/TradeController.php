@@ -9,7 +9,6 @@ use app\model\ConsignmentPriceRule;
 use app\model\UserCollection;
 use app\service\MarketFormatter;
 use app\service\TradeFormatter;
-use app\service\MockData;
 use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
@@ -382,21 +381,15 @@ class TradeController
     // unionLogs 已移至 UserController（union/index/logs 属公会域，
     // 与 union/user/myunion 同域归位；v2.4 拆分，兼解本文件超 300 行）
 
+    /**
+     * GET|POST /user/newrank1 —— 新秀矿石榜【空态】
+     *
+     * 🔴 v3.1：不再编造 10 条假数据（假昵称/假矿石值）。ore 流水无数据载体，
+     *    真实空榜——玩法接入后再切真实聚合。前端无页面调用。
+     */
     public function newRank()
     {
-        $total = 10;
-        $list  = [];
-        for ($i = 1; $i <= $total; $i++) {
-            $list[] = [
-                'rank'       => $i,
-                'user_id'     => 16797 - $i,
-                'nickname'    => '用户' . str_pad((string) $i, 3, '0', STR_PAD_LEFT),
-                'avatar'      => '/defautAvatar.png',
-                'ore'         => number_format(9999 - $i * 137, 6, '.', ''),
-                'is_vip'      => $i <= 3 ? 1 : 0,          // 布尔 = int
-            ];
-        }
-        return Response::ok($list);
+        return Response::ok([]);
     }
 
     public function getConfig()

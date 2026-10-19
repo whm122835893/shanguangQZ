@@ -5,7 +5,6 @@ namespace app\controller\api;
 
 use app\model\ArtelOrder;
 use app\service\Gateways;
-use app\service\MockData;
 use app\service\SettlementService;
 use app\common\Msg;
 use app\common\Request;

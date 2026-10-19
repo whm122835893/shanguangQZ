@@ -12,7 +12,6 @@ use app\model\BlindBox;
 use app\model\Collection;
 use app\model\Series;
 use app\service\Formatter;
-use app\service\MockData;
 use app\model\Publisher;
 use app\common\Request;
 use app\common\Response;

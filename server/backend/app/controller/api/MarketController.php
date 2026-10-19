@@ -7,7 +7,6 @@ use app\model\Collection;
 use app\model\BlindBox;
 use app\service\MarketFormatter;
 use app\service\MarketStats;
-use app\service\MockData;
 use app\common\Msg;
 use app\common\Request;
 use app\common\Response;

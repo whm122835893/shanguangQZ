@@ -29,9 +29,10 @@ use app\controller\api\TradeController;
  *
  * 路径参数命名必须是 ids（前端硬编码拼接，SPEC §6 红线第 7 条）
  *
- * 数据来源标注：
+ * 数据来源标注（v3.1 起 [MOCK] 已清零，全仓无内存假数据）：
  *   [DB]   已按原站实测响应建表并灌入真实数据
- *   [MOCK] 原站需登录或已下线，暂用内存假数据（详见各控制器注释）
+ *   [空态] 无前端调用且无数据载体，真实空返回——绝不编造数据
+ *   [拒绝] 功能未接入，fail-closed 明确拒绝——绝不假成功
  *   [契约] 有实测成功样本且经复探证明恒空态，无数据载体（如 batchPayOrder）
  */
 
@@ -128,11 +129,11 @@ Route::rule('order/pay/CreateMarketOrder',          [PayOrderController::class, 
 Route::rule('order/pay/CreateMarketOrderRush',      [PayOrderController::class, 'createMarketOrderRush'],    'GET|POST'); // [DB] 同上
 Route::rule('order/pay/CreateVipOrder',             [PayController::class, 'createVipOrder'],           'GET|POST'); // [DB]
 Route::rule('order/pay/CreateHuifuAccountOrder',    [PayOrderController::class, 'createHuifuAccountOrder'],  'GET|POST'); // [契约] 原站实测：本账号已付开户费
-Route::rule('order/pay/batchBuy',                   [PayController::class, 'batchBuy'],                 'GET|POST'); // [MOCK]
+Route::rule('order/pay/batchBuy',                   [PayController::class, 'batchBuy'],                 'GET|POST'); // [拒绝] 未接入 fail-closed
 Route::rule('order/pay/Recharge',                   [PayController::class, 'recharge'],                 'GET|POST'); // [DB] v3.0 真落 recharge_order，入账走回调
 // 🔴 新增端点：渠道异步回调（外部资金唯一入口，HMAC 验签 + 幂等结算）
 Route::rule('order/pay/notify/:code',               [\app\controller\api\NotifyController::class, 'notify'], 'POST'); // [新增]
-Route::rule('order/pay/paySmsCheck',                [PayController::class, 'paySmsCheck'],              'GET|POST'); // [MOCK]
+Route::rule('order/pay/paySmsCheck',                [PayController::class, 'paySmsCheck'],              'GET|POST'); // [DB] SmsCodeService 真校验
 Route::rule('order/order/batchPayOrder',            [PayController::class, 'batchPayOrder'],            'GET|POST'); // [契约]
 Route::rule('order/order/getMarketOrderDetails',    [TradeController::class, 'getMarketOrderDetails'],    'GET|POST'); // [DB] IDOR 归属校验
 Route::rule('order/order/saleMarketOrderDetail',    [TradeController::class, 'saleMarketOrderDetail'],    'GET|POST'); // [DB] IDOR + consign=1
@@ -143,8 +144,8 @@ Route::rule('market/Prepayment/collectionDetail',   [TradeController::class, 'pr
 Route::rule('market/Prepayment/myOrderInfo',        [TradeController::class, 'myOrderInfo'],              'GET|POST'); // [DB]
 Route::rule('user_collection/user_collection/detail',            [TradeController::class, 'collectionDetail'],  'GET|POST'); // [DB]
 Route::rule('user_collection/user_collection/show_resale_money', [TradeController::class, 'showResaleMoney'],   'GET|POST'); // [DB]
-Route::rule('union/index/logs',                     [UserController::class, 'unionLogs'],                'GET|POST'); // [MOCK] union 表空
-Route::rule('user/newrank1',                        [TradeController::class, 'newRank'],                  'GET|POST'); // [MOCK] 排行无数据载体
+Route::rule('union/index/logs',                     [UserController::class, 'unionLogs'],                'GET|POST'); // [空态] 无 union_log 载体
+Route::rule('user/newrank1',                        [TradeController::class, 'newRank'],                  'GET|POST'); // [空态] 无数据载体
 Route::rule('index/getConfig',                      [TradeController::class, 'getConfig'],                'GET|POST'); // [DB] 已按原站补 key 校验
 Route::rule('sms/send',                             [SmsController::class, 'send'],                    'GET|POST'); // [DB] 随机码+HMAC存储+频率限制，响应绝不含明文码
 Route::rule('user/register',                        [AccountController::class, 'register'],                 'GET|POST'); // [DB] 真落库 user+user_credential(Argon2id)，验证码一次性消费

@@ -6,7 +6,6 @@ namespace app\controller\api;
 use app\service\Audit;
 use app\model\Collection;
 use app\model\Message;
-use app\service\MockData;
 use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
@@ -278,10 +277,13 @@ class UserController
     }
 
     /**
-     * GET|POST /union/index/logs —— 公会战力流水【MOCK】
+     * GET|POST /union/index/logs —— 公会战力流水【空态】
      *
      * v2.4 从 TradeController 迁入：union/index/logs 属公会域，
      * 与 myUnion 同域归位（TradeController 同时解除超 300 行）。
+     *
+     * 🔴 v3.1：不再编造假流水。union/union_member 表空且无 union_log 载体，
+     *    真实空分页——公会玩法接入后再切真实查询。
      *
      * ⚠️ 分页参数名是 pageSize 不是 limit——原站 API.md §2.3
      *    记录过三种分页写法，本端点用 page + pageSize。
@@ -293,19 +295,7 @@ class UserController
             return $authErr;
         }
 
-        $p     = max(1, Request::int('page', 1));
-        $size  = max(1, min(100, Request::int('pageSize', 15)));
-        $total = 20;
-        $list  = [];
-        for ($i = ($p - 1) * $size; $i < min($p * $size, $total); $i++) {
-            $list[] = [
-                'id'         => $i + 1,
-                'type'       => $i % 2 === 0 ? 1 : 2,      // 1 获得 2 消耗（int）
-                'title'      => ($i % 2 === 0 ? '联合战力+' : '联合战力-') . ($i + 1),
-                'num'        => (string) (($i % 3) + 1),  // 原站此字段为 string
-                'createtime' => time() - $i * 600,
-            ];
-        }
-        return Response::page($list, $total, $size, $p);
+        ['page' => $p, 'size' => $s] = Request::page();
+        return Response::page([], 0, $s, $p);
     }
 }

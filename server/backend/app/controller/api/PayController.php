@@ -8,6 +8,7 @@ use app\model\VipOrder;
 use app\service\Gateways;
 use app\service\OrderService;
 use app\service\PayFormatter;
+use app\service\SmsCodeService;
 use app\common\Msg;
 use app\common\Request;
 use app\common\Response;
@@ -49,27 +50,10 @@ class PayController
             return $authErr;
         }
 
-        $ids = Request::str('ids');
-        if ($ids === '') {
-            return Response::fail('请选择商品');
-        }
-        $arr   = array_filter(explode(',', $ids));
-        $ts    = time();
-        $items = [];
-        foreach ($arr as $i => $id) {
-            $items[] = [
-                'goods_id'  => (int) $id,
-                'num'       => 1,
-                'price'     => '99.00',
-                'order_sn'  => date('YmdHis', $ts) . '57' . (100000 + $i),
-            ];
-        }
-        return Response::ok([
-            'batch_no' => 'BATCH' . date('YmdHis', $ts),
-            'total'    => count($items),
-            'amount'   => '99.00',          // 金额 = string（红线）
-            'items'    => $items,
-        ]);
+        // 🔴 v3.1：不再编造 99.00 假订单（此前无校验、无落库、纯回显）。
+        //    前端无页面调用；真实批量下单应走 CreateOrder 逐单服务端算价落库。
+        //    未接入前 fail-closed 明确拒绝，绝不假成功。
+        return Response::fail('批量购买功能未开放，请逐件下单');
     }
 
     // ==================== 支付 ====================
@@ -205,6 +189,14 @@ class PayController
         }
         if (strlen($code) !== 6) {
             return Response::fail('验证码格式错误');
+        }
+        // 🔴 v3.1：真校验（此前无条件 verify=1，是支付校验后门）。
+        //    场景白名单外（含默认 pay）一律拒绝——SmsCodeService::verify fail-closed，
+        //    恒定时间比较 + 一次性消费 + 错误计数，绝不假成功。
+        $scene  = Request::str('scene', 'pay');
+        $result = SmsCodeService::verify($mobile, $scene, $code);
+        if (!$result['ok']) {
+            return Response::fail($result['msg']);
         }
         return Response::ok(['verify' => 1]);
     }
