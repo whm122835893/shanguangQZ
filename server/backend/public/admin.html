@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>闪光钱庄 · 运营后台</title>
+<link rel="stylesheet" href="https://unpkg.com/element-plus@2.7.6/dist/index.css">
+<script src="https://unpkg.com/vue@3.4.31/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/element-plus@2.7.6/dist/index.full.min.js"></script>
+<script src="https://unpkg.com/element-plus@2.7.6/dist/locale/zh-cn.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f7fa; }
+  #app { height: 100vh; }
+  .layout { display: flex; height: 100vh; }
+  .sidebar { width: 220px; background: #1d2939; color: #cbd5e1; flex-shrink: 0; overflow-y: auto; }
+  .brand { padding: 18px 20px; font-size: 17px; font-weight: 700; color: #fff; letter-spacing: 1px; border-bottom: 1px solid #334155; }
+  .brand small { display: block; font-size: 11px; font-weight: 400; color: #64748b; margin-top: 2px; }
+  .menu-item { padding: 12px 20px; cursor: pointer; font-size: 14px; border-left: 3px solid transparent; }
+  .menu-item:hover { background: #334155; }
+  .menu-item.active { background: #0f172a; color: #fff; border-left-color: #f59e0b; }
+  .menu-group { padding: 10px 20px 4px; font-size: 11px; color: #64748b; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar { height: 52px; background: #fff; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; }
+  .topbar .who { font-size: 13px; color: #475569; }
+  .content { flex: 1; overflow-y: auto; padding: 16px 20px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; }
+  .card .k { font-size: 12px; color: #64748b; }
+  .card .v { font-size: 22px; font-weight: 700; margin-top: 6px; color: #0f172a; }
+  .toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .pager { margin-top: 12px; display: flex; justify-content: flex-end; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+const { createApp, ref, reactive, computed, onMounted, h } = Vue;
+const EP = ElementPlus;
+
+/* ---------- API：同源 /admin/*，表单编码 + X-Admin-Token ---------- */
+let onUnauthorized = () => {};
+async function api(path, data) {
+  const body = new URLSearchParams();
+  Object.entries(data || {}).forEach(([k, v]) => body.append(k, v));
+  const res = await fetch('/admin/' + path, {
+    method: 'POST',
+    headers: { 'X-Admin-Token': localStorage.getItem('sinan_admin_token') || '' },
+    body,
+  });
+  let json;
+  try { json = await res.json(); } catch { throw new Error('HTTP ' + res.status); }
+  if (json.code === 401) { onUnauthorized(); throw new Error('登录已失效'); }
+  if (json.code !== 1) throw new Error(json.msg || '操作失败');
+  return json;
+}
+const page = (json) => ({ rows: json.data.data || [], total: json.data.total || 0 });
+const ts2str = (t) => t > 0 ? new Date(t * 1000).toLocaleString('zh-CN', { hour12: false }) : '—';
+const dt2ts = (s) => s ? Math.floor(new Date(s).getTime() / 1000) : 0;
+const money = (v) => '￥' + Number(v || 0).toFixed(2);
+
+/* ---------- 根组件 ---------- */
+const App = {
+  setup() {
+    const token = ref(localStorage.getItem('sinan_admin_token') || '');
+    const adminName = ref(localStorage.getItem('sinan_admin_name') || '');
+    const view = ref('dashboard');
+    const msg = EP.ElMessage;
+
+    onUnauthorized = () => { token.value = ''; localStorage.removeItem('sinan_admin_token'); view.value = 'login'; };
+
+    async function doLogin(form) {
+      try {
+        const json = await api('auth/login', form);
+        token.value = json.data.token;
+        adminName.value = json.data.username || json.data.nickname || 'admin';
+        localStorage.setItem('sinan_admin_token', token.value);
+        localStorage.setItem('sinan_admin_name', adminName.value);
+        msg.success('登录成功');
+        view.value = 'dashboard';
+      } catch (e) { msg.error(e.message); }
+    }
+    async function doLogout() {
+      try { await api('auth/logout'); } catch {}
+      onUnauthorized();
+    }
+
+    const menus = [
+      { group: '概览', items: [{ key: 'dashboard', label: '仪表盘' }] },
+      { group: '内容运营', items: [
+        { key: 'banner', label: 'Banner' },
+        { key: 'affiche', label: '公告' },
+        { key: 'collection', label: '藏品上下架' },
+        { key: 'lottery', label: '抽奖活动' },
+        { key: 'synthesis', label: '合成运营' },
+      ]},
+      { group: '运营治理', items: [
+        { key: 'users', label: '用户' },
+        { key: 'orders', label: '订单' },
+        { key: 'wallet', label: '钱包流水' },
+        { key: 'realname', label: '实名复核' },
+      ]},
+    ];
+
+    return () => token.value === ''
+      ? h(LoginView, { onLogin: doLogin })
+      : h('div', { class: 'layout' }, [
+          h('div', { class: 'sidebar' }, [
+            h('div', { class: 'brand' }, ['闪光钱庄', h('small', {}, '运营后台')]),
+            menus.map(g => [
+              h('div', { class: 'menu-group' }, g.group),
+              ...g.items.map(it =>
+                h('div', {
+                  class: ['menu-item', view.value === it.key ? 'active' : ''],
+                  onClick: () => { view.value = it.key; },
+                }, it.label)),
+            ]),
+          ]),
+          h('div', { class: 'main' }, [
+            h('div', { class: 'topbar' }, [
+              h('span', { style: 'font-weight:600' }, menus.flatMap(g => g.items).find(i => i.key === view.value)?.label || ''),
+              h('span', { class: 'who' }, [adminName.value + '　', h('a', { href: 'javascript:;', onClick: doLogout, style: 'color:#f59e0b' }, '退出')]),
+            ]),
+            h('div', { class: 'content' }, h(ViewMap[view.value])),
+          ]),
+        ]);
+  }
+};
+
+/* ---------- 登录 ---------- */
+const LoginView = {
+  props: ['onLogin'],
+  setup(props) {
+    const form = reactive({ username: '', password: '' });
+    return () => h('div', { style: 'height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a' }, [
+      h('div', { style: 'background:#fff;border-radius:12px;padding:36px 32px;width:360px' }, [
+        h('h2', { style: 'margin:0 0 4px' }, '闪光钱庄 · 运营后台'),
+        h('p', { style: 'color:#64748b;font-size:13px;margin:0 0 20px' }, '管理员登录（token 12 小时有效）'),
+        h(EP.ElForm, { labelPosition: 'top' }, () => [
+          h(EP.ElFormItem, { label: '账号' }, () => h(EP.ElInput, {
+            modelValue: form.username, 'onUpdate:modelValue': v => form.username = v, placeholder: 'admin 账号',
+          })),
+          h(EP.ElFormItem, { label: '密码' }, () => h(EP.ElInput, {
+            modelValue: form.password, 'onUpdate:modelValue': v => form.password = v,
+            type: 'password', showPassword: true,
+            onKeydown: e => { if (e.key === 'Enter') props.onLogin({ ...form }); },
+          })),
+          h(EP.ElButton, { type: 'warning', style: 'width:100%', onClick: () => props.onLogin({ ...form }) }, () => '登 录'),
+        ]),
+      ]),
+    ]);
+  }
+};
+
+/* ---------- 通用分页表格容器 ---------- */
+function usePaging(fetcher, perPage = 10) {
+  const rows = ref([]); const total = ref(0); const pageNo = ref(1); const loading = ref(false);
+  async function load(p = pageNo.value) {
+    loading.value = true;
+    try {
+      const json = await fetcher(p, perPage);
+      rows.value = page(json).rows; total.value = page(json).total; pageNo.value = p;
+    } catch (e) { EP.ElMessage.error(e.message); }
+    loading.value = false;
+  }
+  return { rows, total, pageNo, perPage, loading, load };
+}
+const Pager = (props) => h('div', { class: 'pager' }, h(EP.ElPagination, {
+  layout: 'total, prev, pager, next', total: props.total, pageSize: props.perPage,
+  currentPage: props.pageNo, 'onCurrentChange': props.onChange,
+}));
+
+/* ---------- 仪表盘 ---------- */
+const Dashboard = {
+  setup() {
+    const d = ref({});
+    const cards = computed(() => [
+      ['用户总数', d.value.user_total], ['今日新增用户', d.value.user_today],
+      ['订单总数', d.value.order_total], ['已支付订单', d.value.order_paid_total],
+      ['已支付 GMV', money(d.value.gmv_paid)], ['充值入账总额', money(d.value.recharge_paid_amount)],
+      ['充值入账笔数', d.value.recharge_paid_total], ['VIP 订单', d.value.vip_total],
+      ['在售挂单数', d.value.market_on_sale], ['在售可售量', d.value.market_on_sale_qty],
+      ['钱包累计入账', money(d.value.wallet_in)], ['钱包累计出账', money(d.value.wallet_out)],
+    ]);
+    onMounted(async () => { try { d.value = (await api('dashboard')).data; } catch (e) { EP.ElMessage.error(e.message); } });
+    return () => h('div', {}, [
+      h('div', { class: 'cards' }, cards.value.map(([k, v]) =>
+        h('div', { class: 'card' }, [h('div', { class: 'k' }, k), h('div', { class: 'v' }, String(v ?? '—'))]))),
+      h('p', { style: 'color:#94a3b8;font-size:12px' },
+        '口径：已支付 = pay_time>0 ｜ 充值入账 = status=2 ｜ 在售 = market_goods.status=1（可售量 = num-sold_num）｜ 钱包合计 = 账本 SUM(direction)'),
+    ]);
+  }
+};
+
+/* ---------- 通用 CRUD 页（banner/公告/藏品/抽奖/合成） ---------- */
+function CrudList(opts) {
+  return {
+    setup() {
+      const pg = usePaging((p, size) => api(opts.list, { page: p, per_page: size }), opts.perPage || 10);
+      const dlg = ref(false); const saving = ref(false);
+      const form = reactive({});
+      const F = EP.ElForm; const FI = EP.ElFormItem;
+
+      function openEdit(row) {
+        Object.keys(form).forEach(k => delete form[k]);
+        Object.assign(form, JSON.parse(JSON.stringify(opts.blank())));
+        if (row) {
+          Object.keys(form).forEach(k => {
+            if (opts.rowToForm?.[k]) form[k] = opts.rowToForm[k](row);
+            else if (row[k] !== undefined && row[k] !== null) form[k] = String(row[k]);
+          });
+          form.id = row.id;
+        }
+        dlg.value = true;
+      }
+      async function save() {
+        saving.value = true;
+        try {
+          await api(opts.save, await opts.toPayload(form));
+          EP.ElMessage.success('已保存');
+          dlg.value = false; pg.load();
+        } catch (e) { EP.ElMessage.error(e.message); }
+        saving.value = false;
+      }
+      async function toggle(row) {
+        try {
+          await api(opts.toggle, { id: row.id, [opts.toggleField]: row[opts.toggleField] === 1 ? 0 : 1 });
+          EP.ElMessage.success('已切换'); pg.load();
+        } catch (e) { EP.ElMessage.error(e.message); }
+      }
+      pg.load(1);
+
+      return () => h('div', {}, [
+        h('div', { class: 'toolbar' }, [
+          h(EP.ElButton, { type: 'warning', onClick: () => openEdit(null) }, () => '新建'),
+        ]),
+        h(EP.ElTable, { data: pg.rows.value, loading: pg.loading.value, border: true, size: 'small' },
+          () => [
+            ...opts.columns.map(c => h(EP.ElTableColumn, {
+              prop: c.prop, label: c.label, width: c.width, minWidth: c.minWidth,
+            }, c.render ? ({ row }) => c.render(row) : undefined)),
+            h(EP.ElTableColumn, { label: '操作', width: 160, fixed: 'right' }, ({ row }) => [
+              h(EP.ElButton, { size: 'small', onClick: () => openEdit(row) }, () => '编辑'),
+              h(EP.ElButton, { size: 'small', type: row[opts.toggleField] === 1 ? 'danger' : 'success', onClick: () => toggle(row) },
+                () => row[opts.toggleField] === 1 ? '下架' : '上架'),
+            ]),
+          ]),
+        h(Pager, { total: pg.total.value, perPage: pg.perPage, pageNo: pg.pageNo.value, onChange: p => pg.load(p) }),
+        h(EP.ElDialog, { modelValue: dlg.value, 'onUpdate:modelValue': v => dlg.value = v, title: form.id ? '编辑' : '新建', width: 560 },
+          () => h(F, { labelWidth: '110px' }, () => opts.fields.map(f => h(FI, { label: f.label }, () =>
+            f.textarea
+              ? h(EP.ElInput, { type: 'textarea', rows: f.rows || 4, modelValue: form[f.prop], 'onUpdate:modelValue': v => form[f.prop] = v })
+              : h(EP.ElInput, { modelValue: form[f.prop], 'onUpdate:modelValue': v => form[f.prop] = v, placeholder: f.placeholder || '' }))))),
+        h('div', { style: 'margin-top:8px' }, h(EP.ElButton, { type: 'warning', loading: saving.value, onClick: save }, () => '保存')),
+      ]);
+    }
+  };
+}
+
+const BannerView = CrudList({
+  list: 'banner/list', save: 'banner/save', toggle: 'banner/toggle', toggleField: 'is_show',
+  blank: () => ({ id: 0, title: '', image: '', url: '', url_type: '1', sort: '0' }),
+  fields: [
+    { prop: 'title', label: '标题' }, { prop: 'image', label: '图片 URL' },
+    { prop: 'url', label: '跳转 URL' }, { prop: 'url_type', label: '跳转类型(1/2)' },
+    { prop: 'sort', label: '排序' },
+  ],
+  columns: [
+    { prop: 'id', label: 'ID', width: 70 }, { prop: 'title', label: '标题', minWidth: 160 },
+    { prop: 'image', label: '图片', minWidth: 200 },
+    { prop: 'sort', label: '排序', width: 70 },
+    { prop: 'is_show', label: '状态', width: 80, render: r => r.is_show === 1 ? '上架' : '下架' },
+  ],
+});
+
+const AfficheView = CrudList({
+  list: 'affiche/list', save: 'affiche/save', toggle: 'affiche/toggle', toggleField: 'is_show',
+  blank: () => ({ id: 0, title: '', type: '', image: '', url: '', content: '', diysort: '0' }),
+  fields: [
+    { prop: 'title', label: '标题' }, { prop: 'type', label: '类型ID(1-5)', placeholder: '1平台 2活动 3发售 4运营 5空投' },
+    { prop: 'image', label: '图片 URL' }, { prop: 'url', label: '跳转 URL' },
+    { prop: 'content', label: '内容(HTML)', textarea: true, rows: 6 }, { prop: 'diysort', label: '排序' },
+  ],
+  columns: [
+    { prop: 'id', label: 'ID', width: 70 }, { prop: 'title', label: '标题', minWidth: 160 },
+    { prop: 'affiche_type', label: '分类', width: 100 },
+    { prop: 'publish_time', label: '发布时间', width: 160, render: r => ts2str(Number(r.publish_time)) },
+    { prop: 'is_show', label: '状态', width: 80, render: r => r.is_show === 1 ? '上架' : '下架' },
+  ],
+});
+
+const CollectionView = CrudList({
+  list: 'collection/list', toggle: 'collection/toggle', toggleField: 'is_show',
+  blank: () => ({}),
+  fields: [],
+  columns: [
+    { prop: 'id', label: 'ID', width: 70 }, { prop: 'name', label: '名称', minWidth: 160 },
+    { prop: 'collection_code', label: '编号', width: 120 },
+    { prop: 'price', label: '发行价', width: 100, render: r => money(r.price) },
+    { prop: 'is_show', label: '状态', width: 80, render: r => r.is_show === 1 ? '上架' : '下架' },
+  ],
+});
+
+const LotteryView = CrudList({
+  list: 'lottery/list', save: 'lottery/save', toggle: 'lottery/toggle', toggleField: 'switch',
+  blank: () => ({ id: 0, name: '', content: '', image1: '', image2: '', crystal: '10', rule: '10',
+                  lottery_max: '0', collection_json: '[]', start_time: '', end_time: '' }),
+  rowToForm: { start_time: r => r.start_time > 0 ? new Date(Number(r.start_time) * 1000).toISOString().slice(0, 16) : '', end_time: r => r.end_time > 0 ? new Date(Number(r.end_time) * 1000).toISOString().slice(0, 16) : '' },
+  toPayload: async f => ({ ...f, start_time: String(dt2ts(f.start_time)), end_time: String(dt2ts(f.end_time)) }),
+  fields: [
+    { prop: 'name', label: '活动名称' }, { prop: 'content', label: '活动说明(HTML)', textarea: true, rows: 4 },
+    { prop: 'image1', label: '主图 URL' }, { prop: 'image2', label: '副图 URL' },
+    { prop: 'crystal', label: '消耗水晶', placeholder: 'yellow/purple/blue 三选一' },
+    { prop: 'rule', label: '单抽消耗' }, { prop: 'lottery_max', label: '限抽次数(0不限)' },
+    { prop: 'collection_json', label: '奖池 JSON', textarea: true, rows: 6,
+      placeholder: '[{"collection_id":1,"name":"奖品名","image":"","lottery_image":"","level":"一等奖","weight":100}]' },
+  ],
+  columns: [
+    { prop: 'id', label: 'ID', width: 70 }, { prop: 'name', label: '活动', minWidth: 140 },
+    { prop: 'crystal', label: '水晶', width: 80 }, { prop: 'rule', label: '单抽', width: 70 },
+    { prop: 'start_time', label: '开始', width: 150, render: r => ts2str(Number(r.start_time)) },
+    { prop: 'end_time', label: '结束', width: 150, render: r => ts2str(Number(r.end_time)) },
+    { prop: 'switch', label: '开关', width: 80, render: r => r.switch === 1 ? '开' : '关' },
+  ],
+});
+
+const SynthesisView = CrudList({
+  list: 'synthesis/theme/list', save: 'synthesis/theme/save', toggle: 'synthesis/theme/save', toggleField: 'status',
+  blank: () => ({ id: 0, name: '', image: '', types: '1', rule_text: '', sort: '0', status: '1' }),
+  toPayload: async f => ({ ...f }),
+  fields: [
+    { prop: 'name', label: '主题名称' }, { prop: 'image', label: '图片 URL' },
+    { prop: 'types', label: '类型' }, { prop: 'rule_text', label: '规则说明', textarea: true, rows: 3 },
+    { prop: 'sort', label: '排序' }, { prop: 'status', label: '状态(1开/0关)' },
+  ],
+  columns: [
+    { prop: 'id', label: 'ID', width: 70 }, { prop: 'name', label: '主题', minWidth: 140 },
+    { prop: 'types', label: '类型', width: 70 },
+    { prop: 'status', label: '状态', width: 80, render: r => r.status === 1 ? '开启' : '关闭' },
+  ],
+});
+
+/* ---------- 用户 ---------- */
+const UsersView = {
+  setup() {
+    const kw = ref('');
+    const pg = usePaging((p, size) => api('user/list', { page: p, per_page: size, keyword: kw.value }));
+    const detail = ref(null); const drawer = ref(false);
+    async function showDetail(row) {
+      try {
+        detail.value = (await api('user/detail', { id: row.id })).data;
+        drawer.value = true;
+      } catch (e) { EP.ElMessage.error(e.message); }
+    }
+    async function freeze(row, action) {
+      try {
+        await EP.ElMessageBox.confirm(`确认${action === 'freeze' ? '冻结' : '解冻'}用户 ${row.nickname || row.username}？`, '提示', { type: 'warning' });
+      } catch { return; }
+      try { await api('user/freeze', { id: row.id, action }); EP.ElMessage.success('已' + (action === 'freeze' ? '冻结' : '解冻')); pg.load(); }
+      catch (e) { EP.ElMessage.error(e.message); }
+    }
+    pg.load(1);
+    return () => h('div', {}, [
+      h('div', { class: 'toolbar' }, [
+        h(EP.ElInput, { modelValue: kw.value, 'onUpdate:modelValue': v => kw.value = v, placeholder: '用户名/昵称/手机号', style: 'width:240px' }),
+        h(EP.ElButton, { type: 'warning', onClick: () => pg.load(1) }, () => '搜索'),
+      ]),
+      h(EP.ElTable, { data: pg.rows.value, loading: pg.loading.value, border: true, size: 'small' }, () => [
+        h(EP.ElTableColumn, { prop: 'id', label: 'ID', width: 70 }),
+        h(EP.ElTableColumn, { prop: 'username', label: '用户名', minWidth: 140 }),
+        h(EP.ElTableColumn, { prop: 'nickname', label: '昵称', minWidth: 110 }),
+        h(EP.ElTableColumn, { prop: 'mobile', label: '手机号（脱敏）', width: 130 }),
+        h(EP.ElTableColumn, { prop: 'money', label: '余额', width: 100, render: r => money(r.money) }),
+        h(EP.ElTableColumn, { prop: 'crystal_yellow', label: '黄水晶', width: 90 }),
+        h(EP.ElTableColumn, { prop: 'real_name_authentication', label: '实名', width: 70, render: r => r.real_name_authentication === 1 ? '是' : '否' }),
+        h(EP.ElTableColumn, { prop: 'status', label: '状态', width: 80, render: r => r.status === 'normal' ? '正常' : r.status }),
+        h(EP.ElTableColumn, { prop: 'createtime', label: '注册时间', width: 150, render: r => ts2str(Number(r.createtime)) }),
+        h(EP.ElTableColumn, { label: '操作', width: 200, fixed: 'right' }, ({ row }) => [
+          h(EP.ElButton, { size: 'small', onClick: () => showDetail(row) }, () => '详情'),
+          row.status === 'normal'
+            ? h(EP.ElButton, { size: 'small', type: 'danger', onClick: () => freeze(row, 'freeze') }, () => '冻结')
+            : h(EP.ElButton, { size: 'small', type: 'success', onClick: () => freeze(row, 'unfreeze') }, () => '解冻'),
+        ]),
+      ]),
+      h(Pager, { total: pg.total.value, perPage: pg.perPage, pageNo: pg.pageNo.value, onChange: p => pg.load(p) }),
+      h(EP.ElDrawer, { modelValue: drawer.value, 'onUpdate:modelValue': v => drawer.value = v, title: '用户详情', size: '420px' },
+        () => detail.value ? h('div', { style: 'font-size:13px;line-height:2' }, [
+          h('h4', {}, '基本信息'),
+          h('p', {}, `ID：${detail.value.user.id} ｜ 用户名：${detail.value.user.username}`),
+          h('p', {}, `昵称：${detail.value.user.nickname} ｜ 手机：${detail.value.user.mobile || '—'}`),
+          h('p', {}, `状态：${detail.value.user.status} ｜ 注册：${ts2str(detail.value.user.createtime)}`),
+          h('h4', {}, '钱包'),
+          h('p', {}, `余额：${money(detail.value.wallet.money)} ｜ 黄/紫/蓝水晶：${detail.value.wallet.crystal_yellow}/${detail.value.wallet.crystal_purple}/${detail.value.wallet.crystal_blue}`),
+          h('p', {}, `累计入账：${money(detail.value.wallet.credit_total)} ｜ 累计出账：${money(detail.value.wallet.debit_total)}`),
+          h('h4', {}, '业务'),
+          h('p', {}, `订单 ${detail.value.counts.orders} 笔 ｜ 持有藏品 ${detail.value.counts.collections} ｜ 在售挂单 ${detail.value.counts.consignments}`),
+          h('h4', {}, '实名'),
+          h('p', {}, detail.value.realname.auth === 1
+            ? `${detail.value.realname.name}（${detail.value.realname.id_card}）· ${ts2str(detail.value.realname.real_name_time)}`
+            : '未实名'),
+        ]) : null),
+    ]);
+  }
+};
+
+/* ---------- 订单 ---------- */
+const OrdersView = {
+  setup() {
+    const kw = ref('');
+    const pg = usePaging((p, size) => api('order/list', { page: p, per_page: size, keyword: kw.value }));
+    pg.load(1);
+    return () => h('div', {}, [
+      h('div', { class: 'toolbar' }, [
+        h(EP.ElInput, { modelValue: kw.value, 'onUpdate:modelValue': v => kw.value = v, placeholder: '订单号/用户名/昵称', style: 'width:240px' }),
+        h(EP.ElButton, { type: 'warning', onClick: () => pg.load(1) }, () => '搜索'),
+      ]),
+      h(EP.ElTable, { data: pg.rows.value, loading: pg.loading.value, border: true, size: 'small' }, () => [
+        h(EP.ElTableColumn, { prop: 'order_sn', label: '订单号', minWidth: 170 }),
+        h(EP.ElTableColumn, { prop: 'user_nickname', label: '用户', width: 110 }),
+        h(EP.ElTableColumn, { prop: 'goods_name', label: '商品', minWidth: 130 }),
+        h(EP.ElTableColumn, { prop: 'order_type', label: '类型', width: 70, render: r => ({ 1: '普通', 2: '市场', 4: '委托', 8: '寄售' }[r.order_type] || r.order_type) }),
+        h(EP.ElTableColumn, { prop: 'total_price', label: '金额', width: 100, render: r => money(r.total_price) }),
+        h(EP.ElTableColumn, { prop: 'pay_time', label: '支付时间', width: 150, render: r => ts2str(Number(r.pay_time)) }),
+        h(EP.ElTableColumn, { prop: 'pay_channel', label: '渠道', width: 90 }),
+        h(EP.ElTableColumn, { prop: 'createtime', label: '创建', width: 150, render: r => ts2str(Number(r.createtime)) }),
+      ]),
+      h(Pager, { total: pg.total.value, perPage: pg.perPage, pageNo: pg.pageNo.value, onChange: p => pg.load(p) }),
+    ]);
+  }
+};
+
+/* ---------- 钱包 ---------- */
+const WalletView = {
+  setup() {
+    const uid = ref('');
+    const sum = ref({});
+    const pg = usePaging((p, size) => api('wallet/transactions', { page: p, per_page: size, user_id: uid.value }), 15);
+    async function loadAll() {
+      try { sum.value = (await api('wallet/summary', { user_id: uid.value })).data; } catch (e) { EP.ElMessage.error(e.message); }
+      pg.load(1);
+    }
+    onMounted(loadAll);
+    return () => h('div', {}, [
+      h('div', { class: 'cards' }, [
+        ['累计入账', money(sum.value.credit_total)], ['累计出账', money(sum.value.debit_total)], ['流水笔数', sum.value.tx_total],
+      ].map(([k, v]) => h('div', { class: 'card' }, [h('div', { class: 'k' }, k), h('div', { class: 'v' }, String(v ?? '—'))]))),
+      h('div', { class: 'toolbar' }, [
+        h(EP.ElInput, { modelValue: uid.value, 'onUpdate:modelValue': v => uid.value = v, placeholder: '按用户 ID 过滤', style: 'width:200px' }),
+        h(EP.ElButton, { type: 'warning', onClick: loadAll }, () => '查询'),
+      ]),
+      h(EP.ElTable, { data: pg.rows.value, loading: pg.loading.value, border: true, size: 'small' }, () => [
+        h(EP.ElTableColumn, { prop: 'id', label: 'ID', width: 70 }),
+        h(EP.ElTableColumn, { prop: 'user_id', label: '用户', width: 80 }),
+        h(EP.ElTableColumn, { prop: 'direction', label: '方向', width: 80, render: r => r.direction === 1 ? '入账' : '出账' }),
+        h(EP.ElTableColumn, { prop: 'amount', label: '金额', width: 100, render: r => money(r.amount) }),
+        h(EP.ElTableColumn, { prop: 'balance_before', label: '变动前', width: 100, render: r => money(r.balance_before) }),
+        h(EP.ElTableColumn, { prop: 'balance_after', label: '变动后', width: 100, render: r => money(r.balance_after) }),
+        h(EP.ElTableColumn, { prop: 'biz_type', label: '业务', width: 110 }),
+        h(EP.ElTableColumn, { prop: 'remark', label: '备注', minWidth: 140 }),
+        h(EP.ElTableColumn, { prop: 'createtime', label: '时间', width: 150, render: r => ts2str(Number(r.createtime)) }),
+      ]),
+      h(Pager, { total: pg.total.value, perPage: pg.perPage, pageNo: pg.pageNo.value, onChange: p => pg.load(p) }),
+    ]);
+  }
+};
+
+/* ---------- 实名 ---------- */
+const RealnameView = {
+  setup() {
+    const pg = usePaging((p, size) => api('realname/list', { page: p, per_page: size }));
+    pg.load(1);
+    return () => h('div', {}, [
+      h('p', { style: 'color:#94a3b8;font-size:12px;margin-top:0' }, '姓名与证件号为脱敏展示，明文只存在于加密存储，绝不进响应体。'),
+      h(EP.ElTable, { data: pg.rows.value, loading: pg.loading.value, border: true, size: 'small' }, () => [
+        h(EP.ElTableColumn, { prop: 'user_id', label: '用户ID', width: 80 }),
+        h(EP.ElTableColumn, { prop: 'username', label: '用户名', minWidth: 130 }),
+        h(EP.ElTableColumn, { prop: 'nickname', label: '昵称', width: 110 }),
+        h(EP.ElTableColumn, { prop: 'real_name', label: '姓名（脱敏）', width: 120 }),
+        h(EP.ElTableColumn, { prop: 'id_card', label: '证件号（脱敏）', width: 160 }),
+        h(EP.ElTableColumn, { prop: 'real_name_time', label: '实名时间', width: 160, render: r => ts2str(Number(r.real_name_time)) }),
+      ]),
+      h(Pager, { total: pg.total.value, perPage: pg.perPage, pageNo: pg.pageNo.value, onChange: p => pg.load(p) }),
+    ]);
+  }
+};
+
+const ViewMap = {
+  dashboard: Dashboard, banner: BannerView, affiche: AfficheView, collection: CollectionView,
+  lottery: LotteryView, synthesis: SynthesisView, users: UsersView, orders: OrdersView,
+  wallet: WalletView, realname: RealnameView,
+};
+
+createApp(App).use(EP, { locale: EP.zhCn || EP.localeZhCn }).mount('#app');
+</script>
+</body>
+</html>
