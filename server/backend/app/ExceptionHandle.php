@@ -50,7 +50,10 @@ class ExceptionHandle extends Handle
      */
     public function render($request, Throwable $e): Response
     {
-        // 添加自定义异常处理机制
+        // 管理端 v1 领域异常：{code, data, message} 信封 + 对应 HTTP 状态码
+        if ($e instanceof \app\service\admin\AdminException) {
+            return \app\service\admin\Resp::fail($e->getMessage(), $e->httpCode());
+        }
 
         // 其他错误交给系统处理
         return parent::render($request, $e);

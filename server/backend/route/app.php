@@ -23,6 +23,12 @@ Route::group(function () {
     require __DIR__ . '/sub/route_admin.php';
 })->allowCrossDomain();
 
+/* 管理后台 v1（司南重建版）：/admin/api/v1，JWT + RBAC。
+   见 route_admin_v1.php 顶部契约注释。 */
+Route::group(function () {
+    require __DIR__ . '/sub/route_admin_v1.php';
+})->allowCrossDomain();
+
 /* 原站 addons 插件路由：**不带 /api 前缀**（其余业务接口都带）。
    目前只有二维码生成一处，Invitation 页用它渲染邀请二维码。
    已在本地用 endroid/qr-code 重写，去掉最后一条原站依赖。

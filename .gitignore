@@ -7,6 +7,9 @@ dist/
 # 本地图片下载缓存（tools/ 下的抓图脚本产生）
 .img-cache/
 
+# ThinkPHP 平台清库备份（运行时产物，含业务数据快照，禁止入库）
+server/backend/runtimebackups/
+
 # 本地环境与日志
 .env
 .env.local

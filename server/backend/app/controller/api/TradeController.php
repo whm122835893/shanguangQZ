@@ -111,6 +111,23 @@ class TradeController
             return Response::fail('未找到合适商品');
         }
 
+        // 🆕 寄售开关（规格 §3.4）：is_resaleable=0 → 禁止挂单
+        if ((int) $coll['is_resaleable'] !== 1) {
+            return Response::fail('该藏品暂不支持寄售');
+        }
+
+        // 🆕 藏品级限价（规格 §3.4.1）：mode=1 → 挂单价必须落在 [min, max] 闭区间
+        if ((int) $coll['resale_price_mode'] === 1) {
+            $rMin = $coll['resale_price_min'] !== null ? (float) $coll['resale_price_min'] : null;
+            $rMax = $coll['resale_price_max'] !== null ? (float) $coll['resale_price_max'] : null;
+            if ($rMin !== null && $rMin > 0 && $price < $rMin) {
+                return Response::fail('寄售价格不能低于' . number_format($rMin, 2, '.', ''));
+            }
+            if ($rMax !== null && $rMax > 0 && $price > $rMax) {
+                return Response::fail('寄售价格不能高于' . number_format($rMax, 2, '.', ''));
+            }
+        }
+
         // 价格下限（寄售限价规则，scene=trade）—— 规则表限价列是 minprice
         $rule = ConsignmentPriceRule::findForCollection((int) $uc['collection_id'], 'trade');
         $min  = $rule ? (float) $rule['minprice'] : 0.0;
@@ -337,7 +354,8 @@ class TradeController
                 'name'           => (string) $coll['name'],
                 'main_image'     => (string) $coll['main_image'],
                 'listimg'        => (string) $coll['listimg'],
-                'weither_regift' => 0,
+                // 转赠开关（规格 §3.5）：weither_regift === is_transferable（C 端按钮据此隐藏/置灰）
+                'weither_regift' => (int) $coll['is_transferable'],
             ],
         ]);
     }
